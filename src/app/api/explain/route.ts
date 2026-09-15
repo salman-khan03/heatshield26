@@ -1,8 +1,8 @@
-import Anthropic from "@anthropic-ai/sdk";
+import { GoogleGenAI } from "@google/genai";
 
 // Turns the zone facts already shown in the planner into a short planning rationale.
-// Claude only restates and connects the numbers it is given; when no credentials are
-// configured the route returns a deterministic template instead.
+// Gemini only restates and connects the numbers it is given; when GEMINI_API_KEY is not
+// configured (or the call fails) the route returns a deterministic template instead.
 
 interface ExplainBody {
   zone: {
@@ -16,6 +16,8 @@ interface ExplainBody {
   recommendation: { type: string; label: string; costAssumptionUSD: number; modeledEffect: string; description: string };
   scenario: { attendance: number; airTempF: number; humidity: number; window: string; modeSplitPct: Record<string, number> };
 }
+
+const MODEL = process.env.GEMINI_MODEL || "gemini-3.8-flash";
 
 const SYSTEM = `You write short decision rationales for City of Houston event, public-health and emergency planners using the HeatShield 26 heat-risk planner.
 
@@ -40,37 +42,20 @@ export async function POST(request: Request) {
   }
   if (!body?.zone || !body?.recommendation) return Response.json({ error: "Missing zone or recommendation" }, { status: 400 });
 
-  try {
-    const client = new Anthropic();
-    const response = await client.beta.messages.create({
-      model: "claude-opus-5",
-      max_tokens: 4000,
-      output_config: { effort: "low" },
-      betas: ["server-side-fallback-2026-07-01"],
-      fallbacks: "default",
-      system: SYSTEM,
-      messages: [{ role: "user", content: `Planner facts (JSON):\n${JSON.stringify(body, null, 2)}` }],
-    });
+  const apiKey = process.env.GEMINI_API_KEY;
+  if (!apiKey) return Response.json({ text: template(body), source: "template" });
 
-    if (response.stop_reason === "refusal") {
-      return Response.json({ text: template(body), source: "template" });
-    }
-    const text = response.content
-      .filter((b): b is Anthropic.Beta.BetaTextBlock => b.type === "text")
-      .map((b) => b.text)
-      .join("")
-      .trim();
-    return Response.json({ text: text || template(body), source: text ? "claude" : "template" });
+  try {
+    const ai = new GoogleGenAI({ apiKey });
+    const response = await ai.models.generateContent({
+      model: MODEL,
+      contents: `Planner facts (JSON):\n${JSON.stringify(body, null, 2)}`,
+      config: { systemInstruction: SYSTEM, maxOutputTokens: 2048 },
+    });
+    const text = response.text?.trim();
+    return Response.json({ text: text || template(body), source: text ? "gemini" : "template" });
   } catch (error) {
-    if (error instanceof Anthropic.AuthenticationError) {
-      console.error("explain: authentication failed — check ANTHROPIC_API_KEY");
-    } else if (error instanceof Anthropic.RateLimitError) {
-      console.error("explain: rate limited");
-    } else if (error instanceof Anthropic.APIError) {
-      console.error(`explain: API error ${error.status}: ${error.message}`);
-    } else {
-      console.warn(`explain: Claude unavailable (${error instanceof Error ? error.message.split(".")[0] : "unknown error"}) — serving template`);
-    }
+    console.warn(`explain: Gemini unavailable (${error instanceof Error ? error.message.slice(0, 160) : "unknown error"}) — serving template`);
     return Response.json({ text: template(body), source: "template" });
   }
 }

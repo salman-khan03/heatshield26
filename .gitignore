@@ -39,3 +39,10 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# heatshield data pipeline cache (re-downloadable)
+/data/raw
+/data/build.log
+/data/probe.mjs
+!.env.example
+/public/maplibre

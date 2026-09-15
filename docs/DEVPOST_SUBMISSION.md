@@ -184,6 +184,6 @@ YouTube listing itself.
 - [x] Regenerate the Instagram carousel, LinkedIn cover/PDF, stories, and reel
       against the final multi-venue numbers (3 → 0 critical zones, 17,109 → 0
       visitors, −10.2% for $990K)
+- [x] Push these updated `docs/screenshots/` and `docs/social/` assets to `main`
 - [ ] Upload `docs/social/demo-full.mp4` to YouTube/Vimeo and paste the URL into
       the Video demo link section above
-- [ ] Push these updated `docs/screenshots/` and `docs/social/` assets to `main`

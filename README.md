@@ -56,7 +56,7 @@ The processed data ships in `public/data/`. To rebuild it from the live sources,
 npm run build:data     # add -- --refresh to re-download
 ```
 
-Optional: copy `.env.example` to `.env.local` and set `GEMINI_API_KEY` to enable Gemini explanations (defaults to `gemini-3.8-flash`; override with `GEMINI_MODEL`). Without it, the app serves a template explanation.
+Optional: copy `.env.example` to `.env.local` and set `GEMINI_API_KEY` to enable Gemini explanations (defaults to `gemini-flash-latest`, with fallbacks on overload; override with `GEMINI_MODEL`). Without it, the app serves a template explanation.
 
 ## Architecture
 
@@ -70,7 +70,7 @@ public/data/layers.json    stadium, lots, stations, rail lines, cool centers, ro
 src/lib/model.ts           scoring, intervention modifiers, summary metrics (pure TS)
 src/lib/optimizer.ts       greedy budget allocation + priority ranking
 src/components/planner/    MapLibre map, scenario/zone/simulate/optimize/priorities panels
-src/app/api/explain        Gemini rationale (gemini-3.8-flash) with template fallback
+src/app/api/explain        Gemini rationale (gemini-flash-latest + fallbacks) with template fallback
 ```
 
 No database: the static JSON totals ~1 MB and every computation runs client-side. One evaluation of all cells takes ~3 ms and a $1M optimizer run ~100 ms, so sliders, placed interventions and optimizer runs update instantly.

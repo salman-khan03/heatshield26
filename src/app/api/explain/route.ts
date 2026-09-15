@@ -17,7 +17,7 @@ interface ExplainBody {
   scenario: { attendance: number; airTempF: number; humidity: number; window: string; modeSplitPct: Record<string, number> };
 }
 
-const MODEL = process.env.GEMINI_MODEL || "gemini-3.8-flash";
+const MODEL = process.env.GEMINI_MODEL || "gemini-flash-latest";
 
 const SYSTEM = `You write short decision rationales for City of Houston event, public-health and emergency planners using the HeatShield 26 heat-risk planner.
 
@@ -45,17 +45,24 @@ export async function POST(request: Request) {
   const apiKey = process.env.GEMINI_API_KEY;
   if (!apiKey) return Response.json({ text: template(body), source: "template" });
 
-  try {
-    const ai = new GoogleGenAI({ apiKey });
-    const response = await ai.models.generateContent({
-      model: MODEL,
-      contents: `Planner facts (JSON):\n${JSON.stringify(body, null, 2)}`,
-      config: { systemInstruction: SYSTEM, maxOutputTokens: 2048 },
-    });
-    const text = response.text?.trim();
-    return Response.json({ text: text || template(body), source: text ? "gemini" : "template" });
-  } catch (error) {
-    console.warn(`explain: Gemini unavailable (${error instanceof Error ? error.message.slice(0, 160) : "unknown error"}) — serving template`);
-    return Response.json({ text: template(body), source: "template" });
+  const ai = new GoogleGenAI({ apiKey });
+  // Try the configured model first; on overload/rate-limit errors fall back to earlier Flash models.
+  for (const model of [...new Set([MODEL, ...FALLBACK_MODELS])]) {
+    try {
+      const response = await ai.models.generateContent({
+        model,
+        contents: `Planner facts (JSON):\n${JSON.stringify(body, null, 2)}`,
+        config: { systemInstruction: SYSTEM, maxOutputTokens: 2048 },
+      });
+      const text = response.text?.trim();
+      if (text) return Response.json({ text, source: "gemini", model });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      console.warn(`explain: ${model} failed (${message.slice(0, 120)})`);
+      if (!/\b(429|500|503)\b|UNAVAILABLE|RESOURCE_EXHAUSTED|overloaded|high demand/i.test(message)) break;
+    }
   }
+  return Response.json({ text: template(body), source: "template" });
 }
+
+const FALLBACK_MODELS = ["gemini-3.6-flash", "gemini-3.5-flash", "gemini-flash-lite-latest"];

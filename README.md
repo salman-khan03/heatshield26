@@ -13,7 +13,7 @@ HeatShield 26 is a geospatial decision-support platform. It finds where event cr
 3. **Heat Event Risk Index.** A transparent 0–100 score per cell with a per-component breakdown and the evidence behind it.
 4. **Intervention simulator.** Place cooling hubs, shade, water and misting stations, or shuttles, and compare before and after on critical zones, visitors routed through them, residents affected and distance to cooling.
 5. **Budget optimizer and priorities.** Enter a budget and get a greedy cost-effectiveness portfolio, plus a top-5 ranking that blends impact, feasibility and long-term usefulness.
-6. **Explain this recommendation.** Google Gemini turns the facts in the zone panel into a short planning rationale. This is the only AI in the product; everything else is deterministic code.
+6. **Explain this recommendation.** Google Gemini (with a Groq fallback) turns the facts in the zone panel into a short planning rationale. This is the only AI in the product; everything else is deterministic code.
 
 ## The index
 
@@ -56,7 +56,7 @@ The processed data ships in `public/data/`. To rebuild it from the live sources,
 npm run build:data     # add -- --refresh to re-download
 ```
 
-Optional: copy `.env.example` to `.env.local` and set `GEMINI_API_KEY` to enable Gemini explanations (defaults to `gemini-flash-latest`, with fallbacks on overload; override with `GEMINI_MODEL`). Without it, the app serves a template explanation.
+Optional: copy `.env.example` to `.env.local` and set `GEMINI_API_KEY` to enable Gemini explanations (defaults to `gemini-flash-latest`, with fallbacks on overload; override with `GEMINI_MODEL`). Optionally also set `GROQ_API_KEY`: when Gemini is unavailable, explanations come from Groq (`openai/gpt-oss-120b`, override with `GROQ_MODEL`). With neither key, the app serves a template explanation.
 
 ## Architecture
 
@@ -70,7 +70,7 @@ public/data/layers.json    stadium, lots, stations, rail lines, cool centers, ro
 src/lib/model.ts           scoring, intervention modifiers, summary metrics (pure TS)
 src/lib/optimizer.ts       greedy budget allocation + priority ranking
 src/components/planner/    MapLibre map, scenario/zone/simulate/optimize/priorities panels
-src/app/api/explain        Gemini rationale (gemini-flash-latest + fallbacks) with template fallback
+src/app/api/explain        Gemini rationale → Groq fallback → deterministic template
 ```
 
 No database: the static JSON totals ~1 MB and every computation runs client-side. One evaluation of all cells takes ~3 ms and a $1M optimizer run ~100 ms, so sliders, placed interventions and optimizer runs update instantly.

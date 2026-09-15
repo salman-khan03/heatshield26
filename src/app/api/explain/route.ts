@@ -42,27 +42,65 @@ export async function POST(request: Request) {
   }
   if (!body?.zone || !body?.recommendation) return Response.json({ error: "Missing zone or recommendation" }, { status: 400 });
 
-  const apiKey = process.env.GEMINI_API_KEY;
-  if (!apiKey) return Response.json({ text: template(body), source: "template" });
-
-  const ai = new GoogleGenAI({ apiKey });
-  // Try the configured model first; on overload/rate-limit errors fall back to earlier Flash models.
-  for (const model of [...new Set([MODEL, ...FALLBACK_MODELS])]) {
-    try {
-      const response = await ai.models.generateContent({
-        model,
-        contents: `Planner facts (JSON):\n${JSON.stringify(body, null, 2)}`,
-        config: { systemInstruction: SYSTEM, maxOutputTokens: 2048 },
-      });
-      const text = response.text?.trim();
-      if (text) return Response.json({ text, source: "gemini", model });
-    } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      console.warn(`explain: ${model} failed (${message.slice(0, 120)})`);
-      if (!/\b(429|500|503)\b|UNAVAILABLE|RESOURCE_EXHAUSTED|overloaded|high demand/i.test(message)) break;
-    }
-  }
+  // Pre-rank the weighted drivers so the model restates the math instead of doing it.
+  const rankedDrivers = Object.entries(body.zone.components)
+    .map(([component, v]) => ({ component, score: v.score, weightPct: v.weight, pointsOfRisk: Number(((v.score * v.weight) / 100).toFixed(1)) }))
+    .sort((a, b) => b.pointsOfRisk - a.pointsOfRisk);
+  const prompt = `Planner facts (JSON). "rankedDrivers" is already sorted from largest to smallest contribution to the risk index; use that order.\n${JSON.stringify({ ...body, rankedDrivers }, null, 2)}`;
+  const gemini = await explainWithGemini(prompt);
+  if (gemini) return Response.json({ text: gemini.text, source: "gemini", model: gemini.model });
+  const groq = await explainWithGroq(prompt);
+  if (groq) return Response.json({ text: groq.text, source: "groq", model: groq.model });
   return Response.json({ text: template(body), source: "template" });
 }
 
-const FALLBACK_MODELS = ["gemini-3.6-flash", "gemini-3.5-flash", "gemini-flash-lite-latest"];
+const GEMINI_FALLBACKS = ["gemini-3.6-flash", "gemini-3.5-flash", "gemini-flash-lite-latest"];
+const GROQ_MODEL = process.env.GROQ_MODEL || "openai/gpt-oss-120b";
+
+async function explainWithGemini(prompt: string): Promise<{ text: string; model: string } | null> {
+  const apiKey = process.env.GEMINI_API_KEY;
+  if (!apiKey) return null;
+  const ai = new GoogleGenAI({ apiKey });
+  // Configured model first; on overload/rate-limit errors fall back to other Flash models.
+  for (const model of [...new Set([MODEL, ...GEMINI_FALLBACKS])]) {
+    try {
+      const response = await ai.models.generateContent({ model, contents: prompt, config: { systemInstruction: SYSTEM, maxOutputTokens: 2048 } });
+      const text = response.text?.trim();
+      if (text) return { text, model };
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      console.warn(`explain: ${model} failed (${message.slice(0, 120)})`);
+      if (!/\b(429|500|503)\b|UNAVAILABLE|RESOURCE_EXHAUSTED|overloaded|high demand/i.test(message)) return null;
+    }
+  }
+  return null;
+}
+
+/** Groq's OpenAI-compatible chat completions endpoint, used when Gemini is unavailable. */
+async function explainWithGroq(prompt: string): Promise<{ text: string; model: string } | null> {
+  const apiKey = process.env.GROQ_API_KEY;
+  if (!apiKey) return null;
+  try {
+    const res = await fetch("https://api.groq.com/openai/v1/chat/completions", {
+      method: "POST",
+      headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
+      body: JSON.stringify({
+        model: GROQ_MODEL,
+        reasoning_effort: "low",
+        max_completion_tokens: 1024,
+        messages: [
+          { role: "system", content: SYSTEM },
+          { role: "user", content: prompt },
+        ],
+      }),
+      signal: AbortSignal.timeout(30_000),
+    });
+    const json = await res.json();
+    if (!res.ok) throw new Error(json?.error?.message ?? `HTTP ${res.status}`);
+    const text: string | undefined = json.choices?.[0]?.message?.content?.trim();
+    return text ? { text, model: GROQ_MODEL } : null;
+  } catch (error) {
+    console.warn(`explain: Groq ${GROQ_MODEL} failed (${error instanceof Error ? error.message.slice(0, 120) : "unknown error"})`);
+    return null;
+  }
+}

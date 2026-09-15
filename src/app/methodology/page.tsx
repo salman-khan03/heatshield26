@@ -265,7 +265,7 @@ export default async function Methodology() {
 
       <Block title="AI use">
         <p className="text-[14px] leading-relaxed text-muted">
-          The only generative-AI feature is “Explain this recommendation”. It sends the numbers already shown in the zone panel to Google Gemini and asks for a 3–4 sentence rationale that uses only those facts. Scores, routing and optimization are deterministic code. Without an API key the planner shows a template explanation instead.
+          The only generative-AI feature is “Explain this recommendation”. It sends the numbers already shown in the zone panel to Google Gemini (or Groq when Gemini is unavailable) and asks for a 3–4 sentence rationale that uses only those facts. Scores, routing and optimization are deterministic code. Without an API key the planner shows a template explanation instead.
         </p>
       </Block>
 

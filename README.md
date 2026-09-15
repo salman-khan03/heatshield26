@@ -6,6 +6,8 @@ HeatShield 26 is a geospatial decision-support platform. It finds where event cr
 
 > Where should Houston invest $1M to protect visitors and residents from extreme heat during its next mega-event?
 
+**Live:** https://heatshield26.vercel.app  ·  **Planner:** https://heatshield26.vercel.app/planner
+
 ## What it does
 
 1. **Heat risk map.** 1,419 H3 hexagons (~0.1 km² each) from Downtown to South Main, scored live in the browser. Views: 2D or 3D, the composite index or any single component.

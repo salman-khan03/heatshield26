@@ -7,7 +7,7 @@
 
 ## Before you present (10 minutes before)
 
-1. **Open the app** in a full-screen browser tab: the Vercel URL, or `npm run dev` → http://localhost:3000/planner. Let it load fully so the map tiles are cached.
+1. **Open the app** in a full-screen browser tab: https://heatshield26.vercel.app/planner (or `npm run dev` → http://localhost:3000/planner as a backup). Let it load fully so the map tiles are cached.
 2. **Reset the planner:** reload the page. Defaults are 68,000 attendees, 98°F, Afternoon, Risk layer, 2D.
 3. **Warm up Gemini:** click any zone → "Explain this recommendation" once, so the first live call isn't slow. If it returns the template, the demo still works.
 4. **Set up screens:** two windows (PowerPoint in Presenter View, browser on the projector) and practice switching with **Alt+Tab**.

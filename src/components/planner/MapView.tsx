@@ -22,6 +22,8 @@ maplibregl.setWorkerUrl("/maplibre/maplibre-gl-worker.mjs");
 
 // Discrete colors that match the legend tiers exactly; opacity rises with risk so hotspots read first.
 const RISK_RAMP: maplibregl.ExpressionSpecification = ["step", ["get", "v"], TIERS[3].color, TIERS[2].min, TIERS[2].color, TIERS[1].min, TIERS[1].color, TIERS[0].min, TIERS[0].color];
+// Extrusions can't vary opacity per feature, so 3D uses muted tints for lower/moderate cells to keep hotspots dominant.
+const RISK_3D: maplibregl.ExpressionSpecification = ["step", ["get", "v"], "#16392a", TIERS[2].min, "#4a3d17", TIERS[1].min, TIERS[1].color, TIERS[0].min, TIERS[0].color];
 const RISK_OPACITY: maplibregl.ExpressionSpecification = ["interpolate", ["linear"], ["get", "v"], 35, 0.14, 45, 0.22, 59.9, 0.36, 60, 0.6, 75, 0.8, 90, 0.9];
 
 const SEQ_RAMP = (stops: string[]): maplibregl.ExpressionSpecification => [
@@ -131,7 +133,7 @@ export default function MapView(props: Props) {
           source: "cells",
           layout: { visibility: "none" },
           paint: {
-            "fill-extrusion-color": RAMPS.risk,
+            "fill-extrusion-color": RISK_3D,
             "fill-extrusion-height": ["interpolate", ["exponential", 1.6], ["get", "v"], 0, 0, 40, 40, 70, 380, 100, 1100],
             "fill-extrusion-opacity": 0.85,
           },
@@ -226,7 +228,7 @@ export default function MapView(props: Props) {
       (map.getSource("cells") as GeoJSONSource).setData(buildCells());
       map.setPaintProperty("cells-fill", "fill-color", RAMPS[metric]);
       map.setPaintProperty("cells-fill", "fill-opacity", metric === "risk" ? RISK_OPACITY : 0.62);
-      map.setPaintProperty("cells-3d", "fill-extrusion-color", RAMPS[metric]);
+      map.setPaintProperty("cells-3d", "fill-extrusion-color", metric === "risk" ? RISK_3D : RAMPS[metric]);
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [scores, metric]);

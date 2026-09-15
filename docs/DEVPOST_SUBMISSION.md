@@ -177,8 +177,13 @@ YouTube listing itself.
 - [x] `npx tsc --noEmit` / `npx eslint` / `npm run build` all pass locally
 - [x] Re-check every hardcoded number in this file and in `README.md` against the
       new dataset (critical-zone counts, visitor counts, optimizer $ and % figures)
-- [ ] Push to `main`, confirm Vercel redeploy succeeds, open the live URL
-- [ ] Re-run `node scripts/screenshots.mjs` against the live site for fresh,
-      accurate screenshots (numbers will differ from the old single-venue build)
-- [ ] Record `docs/social/demo-full.mp4` (landscape, voiceover, real UI) and
-      upload it, then fill in the Video demo link above
+- [x] Push to `main`, confirm Vercel redeploy succeeds, open the live URL
+- [x] Re-run `node scripts/screenshots.mjs` against the live site for fresh,
+      accurate screenshots
+- [x] Record `docs/social/demo-full.mp4` (landscape, voiceover, real UI)
+- [x] Regenerate the Instagram carousel, LinkedIn cover/PDF, stories, and reel
+      against the final multi-venue numbers (3 → 0 critical zones, 17,109 → 0
+      visitors, −10.2% for $990K)
+- [ ] Upload `docs/social/demo-full.mp4` to YouTube/Vimeo and paste the URL into
+      the Video demo link section above
+- [ ] Push these updated `docs/screenshots/` and `docs/social/` assets to `main`

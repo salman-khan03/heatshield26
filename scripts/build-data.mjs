@@ -1,6 +1,8 @@
 // HeatShield 26 — data pipeline.
-// Pulls open Houston datasets, joins them onto an H3 hex grid around NRG Stadium,
-// and writes compact JSON the frontend scores in the browser.
+// Pulls open Houston datasets, joins them onto an H3 hex grid covering Loop 610 and a short
+// buffer beyond it, and writes compact JSON the frontend scores in the browser. Six real venues
+// (NRG Stadium, Daikin Park, Toyota Center, Shell Energy Stadium, TDECU Stadium, Rice Stadium)
+// each get their own crowd-routing model, computed generically from OSM + METRO data.
 //
 //   node scripts/build-data.mjs            (uses cached raw downloads in data/raw)
 //   node scripts/build-data.mjs --refresh  (re-download everything)
@@ -15,8 +17,10 @@ const RAW = path.join(ROOT, "data", "raw");
 const OUT = path.join(ROOT, "public", "data");
 const REFRESH = process.argv.includes("--refresh");
 
-// Study area: Downtown → Midtown → Museum District → TMC → NRG Park → South Main.
-const BBOX = { w: -95.455, s: 29.645, e: -95.335, n: 29.775 };
+// Study area: inside Loop 610 plus a short buffer beyond it — Downtown, Midtown, Montrose,
+// River Oaks, Uptown/Galleria, Rice/West University, the Texas Medical Center, NRG Park,
+// East End, Near Northside, the Heights and the University of Houston.
+const BBOX = { w: -95.48, s: 29.66, e: -95.27, n: 29.84 };
 const H3_RES = 9;
 const ENVELOPE = `geometry=${BBOX.w},${BBOX.s},${BBOX.e},${BBOX.n}&geometryType=esriGeometryEnvelope&inSR=4326&spatialRel=esriSpatialRelIntersects&outSR=4326`;
 
@@ -34,17 +38,36 @@ const SRC = {
   overpass: "https://overpass-api.de/api/interpreter",
 };
 
+// Six real Houston venues. Coordinates and footprint names verified against OpenStreetMap;
+// capacities verified against each venue's own published figures (see docs/methodology).
+const VENUES = [
+  { id: "nrg", name: "NRG Stadium", short: "NRG Stadium · NRG Park", league: "FIFA World Cup 2026 · NFL (Texans)", capacity: 68777, lat: 29.68486, lng: -95.4108, osmName: "NRG Stadium", parkingRadiusM: 1400 },
+  { id: "daikin", name: "Daikin Park", short: "Daikin Park · Downtown", league: "MLB (Astros)", capacity: 41168, lat: 29.75724, lng: -95.35525, osmName: "Daikin Park", parkingRadiusM: 750 },
+  { id: "toyota", name: "Toyota Center", short: "Toyota Center · Downtown", league: "NBA / NHL exhibitions (Rockets)", capacity: 18500, lat: 29.75074, lng: -95.36223, osmName: "Toyota Center", parkingRadiusM: 750 },
+  { id: "shell", name: "Shell Energy Stadium", short: "Shell Energy Stadium · East Downtown", league: "MLS / NWSL (Dynamo FC / Dash)", capacity: 22039, lat: 29.75208, lng: -95.35231, osmName: "Shell Energy Stadium", parkingRadiusM: 750 },
+  { id: "tdecu", name: "TDECU Stadium", short: "TDECU Stadium · University of Houston", league: "NCAA football (UH Cougars)", capacity: 40000, lat: 29.72193, lng: -95.34932, osmName: "TDECU Stadium", parkingRadiusM: 900 },
+  { id: "rice", name: "Rice Stadium", short: "Rice Stadium · Rice University", league: "NCAA football (Rice Owls)", capacity: 47000, lat: 29.71616, lng: -95.40932, osmName: "Rice Stadium", parkingRadiusM: 900 },
+];
+const DEFAULT_VENUE = "nrg";
+
 // ---------------------------------------------------------------- crowd assumptions
-// Every number here is a scenario assumption, surfaced verbatim on /methodology.
+// Every number here is a scenario assumption, surfaced verbatim on /methodology. They apply
+// identically to every venue; only the geometry (gates, lots, stations, rideshare curbs) varies.
 export const CROWD = {
   walkSpeedMps: 1.2, // dense event crowd walking speed
   gateQueueMin: 20, // security screening queue, all attendees
-  railPlatformWaitMin: 8, // waiting on inbound platforms (Red Line, north of TMC)
-  railEgressQueueMin: 15, // post-event platform queue at NRG-area stations
-  rideshareWaitMin: 10, // curbside wait at drop-off / pick-up zone
-  alightShare: { "Stadium Park/Astrodome": 0.7, "Fannin South": 0.2, "Smith Lands": 0.1 },
+  railPlatformWaitMin: 8, // waiting on inbound platforms at the nearest boarding stations
+  railEgressQueueMin: 15, // post-event platform queue at the venue's alight stations
+  rideshareWaitMin: 10, // curbside wait at an assumed drop-off / pick-up zone
   walkOriginRingM: 1600, // walk-up visitors start on a 1-mile ring
   walkOriginCount: 12,
+  alightStationCount: 3, // nearest existing rail stations used for rail arrivals
+  gateQueueBufferM: 150, // ring around the venue footprint that carries the gate queue
+  parkingCapacityPerM2: 1 / 28, // fallback estimate for surface lots with no OSM capacity tag
+  parkingLevelsAssumed: 4, // fallback level count for multi-storey/underground garages
+  parkingCapacityEstimateCapVehicles: 3000, // ceiling on any single *estimated* (untagged) lot
+  fallbackLotShareOfCapacity: 0.35, // synthetic lot size when a venue has no OSM parking nearby
+  fallbackLotCapVehicles: 3000,
 };
 
 // ---------------------------------------------------------------- helpers
@@ -64,7 +87,7 @@ async function cached(name, fetcher) {
 
 async function getJSON(url, init) {
   for (let attempt = 1; ; attempt++) {
-    const res = await fetch(url, { ...init, headers: { "User-Agent": "HeatShield26-hackathon/0.1", ...(init?.headers || {}) } });
+    const res = await fetch(url, { ...init, headers: { "User-Agent": "HeatShield26-hackathon/0.2", ...(init?.headers || {}) } });
     const text = await res.text();
     if (res.ok) {
       try {
@@ -240,7 +263,7 @@ const cells = cellIds.map((id) => {
   const [lat, lng] = h3.cellToLatLng(id);
   return { id, lat, lng };
 });
-log(`hex grid: ${cells.length} H3 res-${H3_RES} cells (${h3.getHexagonAreaAvg(H3_RES, "km2").toFixed(3)} km² each)`);
+log(`hex grid: ${cells.length} H3 res-${H3_RES} cells (${h3.getHexagonAreaAvg(H3_RES, "km2").toFixed(3)} km² each, ≈${round(cells.length * h3.getHexagonAreaAvg(H3_RES, "km2"), 0)} km² total)`);
 
 // 2. Vector sources -------------------------------------------------------
 const tracts = await cached("tracts_2020.json", () =>
@@ -253,10 +276,15 @@ const lrtStations = await cached("metro_lrt_stations.json", () => arcgisGeoJSON(
 const lrtLines = await cached("metro_lrt_lines.json", () => arcgisGeoJSON(`${SRC.hgacTransit}/22`));
 log(`tracts ${tracts.features.length}, heat-vuln tracts ${olsTracts.features.length}, super nbhds ${superNbhd.features.length}, cool centers ${coolCenters.features.length}, LRT stations ${lrtStations.features.length}`);
 
-const osm = await cached("osm_nrg.json", async () => {
-  const q = `[out:json][timeout:60];(way["amenity"="parking"](29.670,-95.425,29.697,-95.396);nwr["leisure"="stadium"](29.675,-95.42,29.695,-95.40);node["amenity"="drinking_water"](${BBOX.s},${BBOX.w},${BBOX.n},${BBOX.e}););out geom tags;`;
+// One combined Overpass call: each venue's footprint + parking within its own search radius,
+// plus city-wide drinking-water points (kept for possible future use).
+const osmVenues = await cached("osm_venues.json", async () => {
+  const footprint = VENUES.map((v) => `nwr["name"="${v.osmName}"](around:500,${v.lat},${v.lng});`).join("\n  ");
+  const parking = VENUES.map((v) => `way["amenity"="parking"](around:${v.parkingRadiusM},${v.lat},${v.lng});`).join("\n  ");
+  const q = `[out:json][timeout:180];\n(\n  ${footprint}\n  ${parking}\n  node["amenity"="drinking_water"](${BBOX.s},${BBOX.w},${BBOX.n},${BBOX.e});\n);\nout geom tags;`;
   return getJSON(SRC.overpass, { method: "POST", body: new URLSearchParams({ data: q }) });
 });
+log(`OSM: ${osmVenues.elements.length} elements (venue footprints + parking + drinking water)`);
 
 const sviRows = await cached("svi_harris.json", async () => {
   const res = await fetch(SRC.sviCsv);
@@ -506,124 +534,211 @@ cells.forEach((c) => {
   c.coolName = name;
 });
 
-// 8. Crowd model: per-attendee person-minutes by mode -------------------------
-const stadiumWay = osm.elements.find((e) => e.tags?.leisure === "stadium" && /NRG Stadium/.test(e.tags.name || ""));
-const stadiumPoly = turf.polygon([stadiumWay.geometry.map((g) => [g.lon, g.lat])]);
-const [sw, ss, se, sn] = turf.bbox(stadiumPoly);
-const stadium = { lat: (ss + sn) / 2, lng: (sw + se) / 2 };
-const gates = [
-  { name: "North gate", lat: sn, lng: stadium.lng },
-  { name: "South gate", lat: ss, lng: stadium.lng },
-  { name: "East gate", lat: stadium.lat, lng: se },
-  { name: "West gate", lat: stadium.lat, lng: sw },
-];
-const nearestGate = (lat, lng) => gates.reduce((a, g) => (haversineM(lat, lng, g.lat, g.lng) < haversineM(lat, lng, a.lat, a.lng) ? g : a));
-
-const layers = { crowd: {}, paths: [] };
-const addTo = (layer, cellIndex, minutes) => {
-  if (cellIndex == null) return;
-  layers.crowd[layer] ||= {};
-  layers.crowd[layer][cellIndex] = (layers.crowd[layer][cellIndex] || 0) + minutes;
-};
+// 8. Crowd model: per-venue, per-attendee person-minutes by mode --------------
 const cellAt = (lat, lng) => idx.get(h3.latLngToCell(lat, lng, H3_RES));
-
-// Walk a straight path, crediting minutes to each hex it crosses. Returns hex list.
-function walkPath(layer, share, from, to) {
-  const lenM = haversineM(from.lat, from.lng, to.lat, to.lng);
-  const steps = Math.max(2, Math.ceil(lenM / 10));
-  const minPerStep = lenM / steps / CROWD.walkSpeedMps / 60;
-  const hexes = new Set();
-  for (let s = 0; s < steps; s++) {
-    const t = (s + 0.5) / steps;
-    const ci = cellAt(from.lat + (to.lat - from.lat) * t, from.lng + (to.lng - from.lng) * t);
-    if (ci == null) continue;
-    addTo(layer, ci, share * minPerStep);
-    hexes.add(ci);
-  }
-  return { hexes: [...hexes], minutes: lenM / CROWD.walkSpeedMps / 60, lengthM: Math.round(lenM) };
-}
-
-// Rail: alight at NRG-area stations, walk to nearest gate; platform waits inbound + egress queue.
 const stationFeats = lrtStations.features.filter((f) => f.properties.Status === "Existing");
-const stationByName = (n) => stationFeats.find((f) => f.properties.Stat_Name === n);
-for (const [name, share] of Object.entries(CROWD.alightShare)) {
-  const st = stationByName(name);
-  const [lng, lat] = st.geometry.coordinates;
-  const g = nearestGate(lat, lng);
-  const p = walkPath("railWalk", share, { lat, lng }, g);
-  addTo("railQueue", cellAt(lat, lng), share * CROWD.railEgressQueueMin);
-  layers.paths.push({ mode: "rail", label: `${name} → ${g.name}`, share, ...p, start: [lng, lat], end: [g.lng, g.lat] });
-}
-const boarding = stationFeats.filter((f) => ["Red", "Shared"].includes(f.properties.LineColor) && f.geometry.coordinates[1] > 29.705);
-for (const f of boarding) {
-  const [lng, lat] = f.geometry.coordinates;
-  addTo("railQueue", cellAt(lat, lng), CROWD.railPlatformWaitMin / boarding.length);
+
+function syntheticFootprint(lat, lng, wM = 140, hM = 100) {
+  const dLat = hM / 2 / 111320, dLng = wM / 2 / (111320 * Math.cos((lat * Math.PI) / 180));
+  return turf.polygon([[[lng - dLng, lat - dLat], [lng + dLng, lat - dLat], [lng + dLng, lat + dLat], [lng - dLng, lat + dLat], [lng - dLng, lat - dLat]]]);
 }
 
-// Car: park at NRG Park lots in proportion to OSM capacity; walk to nearest gate; tailgate in lot.
-const lotsSeen = new Set();
-const lots = osm.elements
-  .filter((e) => e.tags?.amenity === "parking" && e.tags.capacity && /Lot/i.test(e.tags.name || "") && e.geometry?.length > 3)
-  .filter((e) => {
-    const key = `${e.tags.name}|${e.tags.capacity}`;
-    if (lotsSeen.has(key)) return false;
-    lotsSeen.add(key);
-    return true;
-  })
-  .map((e) => {
+function venueFootprint(v) {
+  const el = osmVenues.elements.find((e) => e.type === "way" && e.tags?.name === v.osmName && e.geometry?.length > 3);
+  if (!el) {
+    log(`  ! no OSM footprint matched "${v.osmName}" — using a synthetic footprint`);
+    return syntheticFootprint(v.lat, v.lng);
+  }
+  const coords = el.geometry.map((g) => [g.lon, g.lat]);
+  if (coords[0][0] !== coords.at(-1)[0] || coords[0][1] !== coords.at(-1)[1]) coords.push(coords[0]);
+  return turf.polygon([coords]);
+}
+
+// Every OSM parking way near any venue, assigned to whichever venue centroid it's nearest to
+// (needed because downtown venues sit close enough together that search radii overlap).
+const allParkingWays = osmVenues.elements.filter((e) => e.type === "way" && e.tags?.amenity === "parking" && e.geometry?.length > 3);
+function venueLots(v) {
+  const out = [];
+  const seen = new Set();
+  for (const e of allParkingWays) {
     const coords = e.geometry.map((g) => [g.lon, g.lat]);
     if (coords[0][0] !== coords.at(-1)[0] || coords[0][1] !== coords.at(-1)[1]) coords.push(coords[0]);
-    const poly = turf.polygon([coords]);
+    let poly;
+    try {
+      poly = turf.polygon([coords]);
+    } catch {
+      continue;
+    }
     const [lng, lat] = turf.centroid(poly).geometry.coordinates;
-    return { name: e.tags.name, capacity: Number(e.tags.capacity), poly, lat, lng };
-  });
-const totalCap = lots.reduce((s, l) => s + l.capacity, 0);
-for (const lot of lots) {
-  const share = lot.capacity / totalCap;
-  const g = nearestGate(lot.lat, lot.lng);
-  const p = walkPath("carWalk", share, lot, g);
-  layers.paths.push({ mode: "car", label: `${lot.name} → ${g.name}`, share, ...p, start: [lot.lng, lot.lat], end: [g.lng, g.lat] });
-  // tailgating: spread one hour of dwell across the lot's hexes by area
-  const [bw, bs, be, bn] = turf.bbox(lot.poly);
-  const inside = [];
-  for (let la = bs; la <= bn; la += 0.00018) for (let ln = bw; ln <= be; ln += 0.0002) if (turf.booleanPointInPolygon(turf.point([ln, la]), lot.poly)) inside.push(cellAt(la, ln));
-  const pts = inside.length ? inside : [cellAt(lot.lat, lot.lng)];
-  pts.forEach((ci) => addTo("tailgatePerHour", ci, (share * 60) / pts.length));
+    // nearest-venue assignment
+    let nearest = null, bestD = Infinity;
+    for (const other of VENUES) {
+      const d = haversineM(lat, lng, other.lat, other.lng);
+      if (d < bestD) { bestD = d; nearest = other; }
+    }
+    if (nearest.id !== v.id || bestD > v.parkingRadiusM) continue;
+    const key = `${e.id}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    const areaM2 = turf.area(poly);
+    if (areaM2 < 200) continue; // slivers / single bays
+    let capacity = Number(e.tags.capacity);
+    if (!Number.isFinite(capacity) || capacity <= 0) {
+      const levels = /multi-storey|underground/.test(e.tags.parking || "") ? CROWD.parkingLevelsAssumed : 1;
+      capacity = Math.round(Math.min(CROWD.parkingCapacityEstimateCapVehicles, areaM2 * CROWD.parkingCapacityPerM2 * levels));
+    }
+    if (capacity < 5) continue;
+    out.push({ name: e.tags.name || `Parking (assumed) #${out.length + 1}`, capacity, poly, lat, lng, estimated: !e.tags.capacity });
+  }
+  if (out.length === 0) {
+    const fb = turf.destination([v.lng, v.lat], 0.3, 260);
+    const poly = syntheticFootprint(fb.geometry.coordinates[1], fb.geometry.coordinates[0], 200, 150);
+    out.push({
+      name: "Assumed nearby parking (no OSM capacity data)",
+      capacity: Math.round(Math.min(CROWD.fallbackLotCapVehicles, v.capacity * CROWD.fallbackLotShareOfCapacity)),
+      poly, lat: fb.geometry.coordinates[1], lng: fb.geometry.coordinates[0], estimated: true,
+    });
+  }
+  return out;
 }
 
-// Rideshare: assumed curbside zones at the west (Kirby Dr) and east (Fannin St) edges of NRG Park.
-const lotBounds = turf.bbox(turf.featureCollection(lots.map((l) => l.poly)));
-const rideZones = [
-  { name: "West curbside zone (Kirby Dr edge, assumed)", lat: stadium.lat, lng: lotBounds[0] },
-  { name: "East curbside zone (Fannin St edge, assumed)", lat: stadium.lat - 0.002, lng: lotBounds[2] },
-];
-for (const z of rideZones) {
-  const g = nearestGate(z.lat, z.lng);
-  const p = walkPath("rideWalk", 0.5, z, g);
-  addTo("rideWalk", cellAt(z.lat, z.lng), 0.5 * CROWD.rideshareWaitMin);
-  layers.paths.push({ mode: "rideshare", label: `${z.name} → ${g.name}`, share: 0.5, ...p, start: [z.lng, z.lat], end: [g.lng, g.lat] });
+function nearestStations(v, n) {
+  // METRORail often has separate NB/SB platform points sharing one station name; take the
+  // nearest platform per distinct name so "nearest N stations" doesn't list the same stop twice.
+  const nearestByName = new Map();
+  for (const f of stationFeats) {
+    const [lng, lat] = f.geometry.coordinates;
+    const name = f.properties.Stat_Name;
+    const d = haversineM(v.lat, v.lng, lat, lng);
+    const existing = nearestByName.get(name);
+    if (!existing || d < existing.d) nearestByName.set(name, { name, lat, lng, d });
+  }
+  const picked = [...nearestByName.values()].sort((a, b) => a.d - b.d).slice(0, n);
+  const weighted = picked.map((s) => ({ ...s, w: 1 / Math.max(150, s.d) ** 1.4 }));
+  const sw = weighted.reduce((x, y) => x + y.w, 0);
+  return weighted.map((s) => ({ name: s.name, lat: s.lat, lng: s.lng, distM: Math.round(s.d), share: round(s.w / sw, 3) }));
 }
 
-// Walk-up: origins on a 1-mile ring, straight to nearest gate.
-for (let k = 0; k < CROWD.walkOriginCount; k++) {
-  const bearing = (360 * k) / CROWD.walkOriginCount;
-  const [lng, lat] = turf.destination([stadium.lng, stadium.lat], CROWD.walkOriginRingM / 1000, bearing).geometry.coordinates;
-  const g = nearestGate(lat, lng);
-  const share = 1 / CROWD.walkOriginCount;
-  const p = walkPath("walkWalk", share, { lat, lng }, g);
-  layers.paths.push({ mode: "walk", label: `Walk-up (bearing ${bearing}°) → ${g.name}`, share, ...p, start: [lng, lat], end: [g.lng, g.lat] });
+function buildVenue(v) {
+  const footprint = venueFootprint(v);
+  const [sw, ss, se, sn] = turf.bbox(footprint);
+  const centroid = { lat: (ss + sn) / 2, lng: (sw + se) / 2 };
+  const gates = [
+    { name: "North gate", lat: sn, lng: centroid.lng },
+    { name: "South gate", lat: ss, lng: centroid.lng },
+    { name: "East gate", lat: centroid.lat, lng: se },
+    { name: "West gate", lat: centroid.lat, lng: sw },
+  ];
+  const nearestGate = (lat, lng) => gates.reduce((a, g) => (haversineM(lat, lng, g.lat, g.lng) < haversineM(lat, lng, a.lat, a.lng) ? g : a));
+
+  const crowd = {};
+  const paths = [];
+  const addTo = (layer, cellIndex, minutes) => {
+    if (cellIndex == null) return;
+    crowd[layer] ||= {};
+    crowd[layer][cellIndex] = (crowd[layer][cellIndex] || 0) + minutes;
+  };
+  function walkPath(layer, share, from, to) {
+    const lenM = haversineM(from.lat, from.lng, to.lat, to.lng);
+    const steps = Math.max(2, Math.ceil(lenM / 10));
+    const minPerStep = lenM / steps / CROWD.walkSpeedMps / 60;
+    const hexes = new Set();
+    for (let s = 0; s < steps; s++) {
+      const t = (s + 0.5) / steps;
+      const ci = cellAt(from.lat + (to.lat - from.lat) * t, from.lng + (to.lng - from.lng) * t);
+      if (ci == null) continue;
+      addTo(layer, ci, share * minPerStep);
+      hexes.add(ci);
+    }
+    return { hexes: [...hexes], minutes: lenM / CROWD.walkSpeedMps / 60, lengthM: Math.round(lenM) };
+  }
+
+  // Rail: alight at the nearest existing stations (inverse-distance weighted), walk to nearest gate.
+  const alightStations = nearestStations(v, CROWD.alightStationCount);
+  for (const st of alightStations) {
+    const g = nearestGate(st.lat, st.lng);
+    const p = walkPath("railWalk", st.share, st, g);
+    addTo("railQueue", cellAt(st.lat, st.lng), st.share * CROWD.railEgressQueueMin);
+    paths.push({ mode: "rail", label: `${st.name} → ${g.name}`, share: st.share, ...p, start: [st.lng, st.lat], end: [g.lng, g.lat] });
+  }
+  const boarding = stationFeats.filter((f) => haversineM(v.lat, v.lng, f.geometry.coordinates[1], f.geometry.coordinates[0]) < 6000);
+  for (const f of boarding) {
+    const [lng, lat] = f.geometry.coordinates;
+    addTo("railQueue", cellAt(lat, lng), CROWD.railPlatformWaitMin / boarding.length);
+  }
+
+  // Car: park at nearby lots in proportion to capacity (tagged, or area-estimated); walk to nearest gate; tailgate in lot.
+  const lots = venueLots(v);
+  const totalCap = lots.reduce((s, l) => s + l.capacity, 0);
+  for (const lot of lots) {
+    const share = lot.capacity / totalCap;
+    const g = nearestGate(lot.lat, lot.lng);
+    const p = walkPath("carWalk", share, lot, g);
+    paths.push({ mode: "car", label: `${lot.name} → ${g.name}`, share, ...p, start: [lot.lng, lot.lat], end: [g.lng, g.lat] });
+    const [bw, bs, be, bn] = turf.bbox(lot.poly);
+    const inside = [];
+    for (let la = bs; la <= bn; la += 0.00018) for (let ln = bw; ln <= be; ln += 0.0002) if (turf.booleanPointInPolygon(turf.point([ln, la]), lot.poly)) inside.push(cellAt(la, ln));
+    const pts = inside.length ? inside : [cellAt(lot.lat, lot.lng)];
+    pts.forEach((ci) => addTo("tailgatePerHour", ci, (share * 60) / pts.length));
+  }
+
+  // Rideshare: two assumed curbside zones offset from the venue centroid.
+  const rideZonePts = [
+    { name: "West curbside zone (assumed)", pt: turf.destination([centroid.lng, centroid.lat], 0.28, 265) },
+    { name: "East curbside zone (assumed)", pt: turf.destination([centroid.lng, centroid.lat], 0.28, 85) },
+  ];
+  const rideZones = rideZonePts.map(({ name, pt }) => ({ name, lng: pt.geometry.coordinates[0], lat: pt.geometry.coordinates[1] }));
+  for (const z of rideZones) {
+    const g = nearestGate(z.lat, z.lng);
+    const p = walkPath("rideWalk", 0.5, z, g);
+    addTo("rideWalk", cellAt(z.lat, z.lng), 0.5 * CROWD.rideshareWaitMin);
+    paths.push({ mode: "rideshare", label: `${z.name} → ${g.name}`, share: 0.5, ...p, start: [z.lng, z.lat], end: [g.lng, g.lat] });
+  }
+
+  // Walk-up: origins on a 1-mile ring, straight to nearest gate.
+  for (let k = 0; k < CROWD.walkOriginCount; k++) {
+    const bearing = (360 * k) / CROWD.walkOriginCount;
+    const [lng, lat] = turf.destination([centroid.lng, centroid.lat], CROWD.walkOriginRingM / 1000, bearing).geometry.coordinates;
+    const g = nearestGate(lat, lng);
+    const share = 1 / CROWD.walkOriginCount;
+    const p = walkPath("walkWalk", share, { lat, lng }, g);
+    paths.push({ mode: "walk", label: `Walk-up (bearing ${bearing}°) → ${g.name}`, share, ...p, start: [lng, lat], end: [g.lng, g.lat] });
+  }
+
+  // Gate queue: all attendees, spread over hexes touching a buffer around the venue footprint.
+  const buf = turf.buffer(footprint, CROWD.gateQueueBufferM / 1000, { units: "kilometers" });
+  const gateHexes = new Set();
+  const [gw, gs, ge, gn] = turf.bbox(buf);
+  for (let la = gs; la <= gn; la += 0.0003) for (let ln = gw; ln <= ge; ln += 0.0003) if (turf.booleanPointInPolygon(turf.point([ln, la]), buf)) gateHexes.add(cellAt(la, ln));
+  gateHexes.forEach((ci) => addTo("gateQueue", ci, CROWD.gateQueueMin / gateHexes.size));
+
+  for (const k of Object.keys(crowd)) for (const ci of Object.keys(crowd[k])) crowd[k][ci] = round(crowd[k][ci], 4);
+
+  const parkingSpaces = lots.reduce((s, l) => s + l.capacity, 0);
+  log(
+    `  ${v.name}: ${lots.length} lots (${parkingSpaces} spaces${lots.some((l) => l.estimated) ? ", some area-estimated" : ""}), ` +
+      `${alightStations.length} rail stations (${alightStations.map((s) => `${s.name} ${Math.round(s.share * 100)}%`).join(", ")}), ${paths.length} paths, gate hexes ${gateHexes.size}`,
+  );
+
+  return {
+    meta: {
+      id: v.id, name: v.name, short: v.short, league: v.league, capacity: v.capacity,
+      lat: round(centroid.lat, 5), lng: round(centroid.lng, 5), gates: gates.map((g) => ({ name: g.name, lat: round(g.lat, 5), lng: round(g.lng, 5) })),
+      alightStations, counts: { parkingLots: lots.length, parkingSpaces, lrtStationsUsed: alightStations.length },
+    },
+    geo: {
+      stadium: turf.feature(footprint.geometry, { name: v.name }),
+      lots: turf.featureCollection(lots.map((l) => turf.feature(l.poly.geometry, { name: l.name, capacity: l.capacity, estimated: !!l.estimated }))),
+      rideZones: turf.featureCollection(rideZones.map((z) => turf.point([z.lng, z.lat], { name: z.name }))),
+      paths: turf.featureCollection(paths.map((p) => turf.lineString([p.start, p.end], { mode: p.mode, label: p.label }))),
+    },
+    crowd,
+    paths: paths.map((p) => ({ mode: p.mode, label: p.label, share: p.share, hexes: p.hexes, minutes: p.minutes, lengthM: p.lengthM })),
+  };
 }
 
-// Gate queue: all attendees, spread over hexes touching a 150 m buffer around the stadium.
-const buffer = turf.buffer(stadiumPoly, 0.15, { units: "kilometers" });
-const gateHexes = new Set();
-const [gw, gs, ge, gn] = turf.bbox(buffer);
-for (let la = gs; la <= gn; la += 0.0003) for (let ln = gw; ln <= ge; ln += 0.0003) if (turf.booleanPointInPolygon(turf.point([ln, la]), buffer)) gateHexes.add(cellAt(la, ln));
-gateHexes.forEach((ci) => addTo("gateQueue", ci, CROWD.gateQueueMin / gateHexes.size));
-
-// round crowd layers
-for (const k of Object.keys(layers.crowd)) for (const ci of Object.keys(layers.crowd[k])) layers.crowd[k][ci] = round(layers.crowd[k][ci], 4);
-log(`crowd model: ${lots.length} lots (${totalCap} spaces), ${layers.paths.length} paths, gate hexes ${gateHexes.size}`);
+log(`crowd model: building ${VENUES.length} venues...`);
+const venueResults = VENUES.map((v) => buildVenue(v));
 
 // 9. Neighbors + geometry -----------------------------------------------------
 cells.forEach((c) => {
@@ -650,8 +765,8 @@ const meta = {
   h3Res: H3_RES,
   hexAreaKm2: round(h3.getHexagonAreaAvg(H3_RES, "km2"), 4),
   cellCount: cells.length,
-  stadium: { name: "NRG Stadium (FIFA: Houston Stadium)", ...stadium, capacity: 68777 },
-  gates,
+  defaultVenue: DEFAULT_VENUE,
+  venues: venueResults.map((r) => r.meta),
   heat: heatStats,
   idw: IDW,
   canopySource: { name: "USFS NLCD Tree Canopy Cover", raster: tccLatest.name, year: tccLatest.year },
@@ -662,23 +777,26 @@ const meta = {
     tracts: new Set(cells.map((c) => c.tract)).size,
     coolCenters: coolPts.length,
     lrtStations: stationFeats.length,
-    parkingLots: lots.length,
-    parkingSpaces: totalCap,
     residents: cells.reduce((s, c) => s + c.pop, 0),
   },
 };
 
 const geo = {
-  stadium: turf.feature(stadiumPoly.geometry, { name: "NRG Stadium" }),
-  lots: turf.featureCollection(lots.map((l) => turf.feature(l.poly.geometry, { name: l.name, capacity: l.capacity }))),
   stations: turf.featureCollection(stationFeats.map((f) => turf.point(f.geometry.coordinates, { name: f.properties.Stat_Name, line: f.properties.LineColor }))),
   lines: turf.featureCollection(lrtLines.features.filter((f) => f.geometry).map((f) => turf.feature(f.geometry, { line: f.properties.LineColor || f.properties.Line_Name || f.properties.Corr_Name || "" }))),
   cool: turf.featureCollection(coolPts.map((p) => turf.point([p.lng, p.lat], { name: p.name, address: p.address }))),
-  rideZones: turf.featureCollection(rideZones.map((z) => turf.point([z.lng, z.lat], { name: z.name }))),
-  paths: turf.featureCollection(layers.paths.map((p) => turf.lineString([p.start, p.end], { mode: p.mode, label: p.label }))),
+  venues: Object.fromEntries(venueResults.map((r) => [r.meta.id, r.geo])),
 };
 
-await fs.writeFile(path.join(OUT, "cells.json"), JSON.stringify({ meta, cells: cellOut, crowd: layers.crowd, paths: layers.paths.map((p) => ({ mode: p.mode, label: p.label, share: p.share, hexes: p.hexes, minutes: p.minutes, lengthM: p.lengthM })) }));
+await fs.writeFile(
+  path.join(OUT, "cells.json"),
+  JSON.stringify({
+    meta,
+    cells: cellOut,
+    crowdByVenue: Object.fromEntries(venueResults.map((r) => [r.meta.id, r.crowd])),
+    pathsByVenue: Object.fromEntries(venueResults.map((r) => [r.meta.id, r.paths])),
+  }),
+);
 await fs.writeFile(path.join(OUT, "layers.json"), JSON.stringify(geo));
 const size = (await fs.stat(path.join(OUT, "cells.json"))).size;
 log(`wrote public/data/cells.json (${(size / 1024).toFixed(0)} KB) and layers.json`);

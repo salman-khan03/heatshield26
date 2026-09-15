@@ -2,7 +2,7 @@
 
 **Track 3 — Public Health & the Built Environment · Rice University Urban Sustainability Hackathon**
 
-HeatShield 26 is a geospatial decision-support platform. It finds where event crowds, extreme heat, social and health vulnerability, missing shade and poor cooling access overlap around Houston Stadium (NRG Park). Then it tells planners where cooling hubs, shade, water stations and shuttle changes do the most good before the next mega-event.
+HeatShield 26 is a geospatial decision-support platform covering Houston inside Loop 610. It finds where event crowds, extreme heat, social and health vulnerability, missing shade and poor cooling access overlap at any of **6 real Houston venues** — NRG Stadium, Daikin Park, Toyota Center, Shell Energy Stadium, TDECU Stadium and Rice Stadium. Then it tells planners where cooling hubs, shade, water stations and shuttle changes do the most good before the next mega-event.
 
 > Where should Houston invest $1M to protect visitors and residents from extreme heat during its next mega-event?
 
@@ -10,8 +10,8 @@ HeatShield 26 is a geospatial decision-support platform. It finds where event cr
 
 ## What it does
 
-1. **Heat risk map.** 1,419 H3 hexagons (~0.1 km² each) from Downtown to South Main, scored live in the browser. Views: 2D or 3D, the composite index or any single component.
-2. **Mega-event mode.** Attendance, forecast temperature, humidity, event window (morning, afternoon or evening), arrival-mode split and tailgating.
+1. **Heat risk map.** ~3,400 H3 hexagons (~0.1 km² each) covering Houston inside Loop 610 — Downtown, Midtown, Montrose, Uptown/Galleria, the Medical Center, NRG Park, East End, the Heights and more — scored live in the browser. Views: 2D or 3D, the composite index or any single component.
+2. **Pick a venue, then a mega-event mode.** A dropdown switches the crowd model between NRG Stadium, Daikin Park, Toyota Center, Shell Energy Stadium, TDECU Stadium and Rice Stadium — each with its own real gates, nearby parking, and nearest rail stations, computed generically rather than hand-typed per venue. Attendance, forecast temperature, humidity, event window (morning, afternoon or evening), arrival-mode split and tailgating are all sliders.
 3. **Heat Event Risk Index.** A transparent 0–100 score per cell with a per-component breakdown and the evidence behind it.
 4. **Intervention simulator.** Place cooling hubs, shade, water and misting stations, or shuttles, and compare before and after on critical zones, visitors routed through them, residents affected and distance to cooling.
 5. **Budget optimizer and priorities.** Enter a budget and get a greedy cost-effectiveness portfolio, plus a top-5 ranking that blends impact, feasibility and long-term usefulness.
@@ -39,9 +39,9 @@ It is a decision-support composite, not a medical prediction. Every component is
 | Shade | USFS NLCD Tree Canopy Cover (30 m, latest year) for every cell; ForUsTree 2024 LiDAR canopy shown as evidence where it exists |
 | Vulnerability | CDC/ATSDR SVI 2022; CDC PLACES 2025 release (CHD, COPD, diabetes, CKD) |
 | Cooling access | City of Houston Cool Centers |
-| Crowd routing | METRO light rail stations and lines (H-GAC); NRG Stadium and NRG Park lots with capacities (© OpenStreetMap contributors) |
+| Crowd routing | METRO light rail stations and lines (H-GAC); 6 venue footprints and their nearby parking lots/garages, by OSM capacity tag or area estimate (© OpenStreetMap contributors) |
 | Zone names | City of Houston Super Neighborhoods |
-| Attendance reference | FIFA: Houston Stadium capacity 68,777 |
+| Venue capacities | NRG Stadium via FIFA; Daikin Park, Toyota Center, Shell Energy Stadium, TDECU Stadium and Rice Stadium via each venue's own published figures |
 
 Costs and intervention effect sizes are **scenario assumptions**, labeled as such everywhere they appear.
 
@@ -66,8 +66,8 @@ Optional: copy `.env.example` to `.env.local` and set `GEMINI_API_KEY` to enable
 scripts/build-data.mjs     Node pipeline: ArcGIS REST + ImageServer sampling, CDC CSV/Socrata, Overpass
         │                  → H3 grid joins, heat calibration + gap model, crowd routing
         ▼
-public/data/cells.json     per-cell attributes, per-attendee crowd layers, modeled routes
-public/data/layers.json    stadium, lots, stations, rail lines, cool centers, routes
+public/data/cells.json     per-cell attributes; per-venue crowd layers & modeled routes (6 venues)
+public/data/layers.json    per-venue stadium footprint/lots/rideshare zones/routes + city-wide stations, rail lines, cool centers
         │
 src/lib/model.ts           scoring, intervention modifiers, summary metrics (pure TS)
 src/lib/optimizer.ts       greedy budget allocation + priority ranking
@@ -91,8 +91,8 @@ MapLibre GL 6 loads its web worker relative to its own module URL, which doesn't
 ## 90-second demo
 
 1. **Landing page.** "Neighborhoods can differ by 14°F during the same heat wave, but heat, transit, vulnerability and infrastructure live in separate datasets."
-2. **Open the planner.** 68,000 attendees, 98°F afternoon. The 5 critical cells sit on NRG Park's Yellow, Green, Purple and Teal lots at the stadium's edge. High-risk cells spread across the Blue, Orange and Maroon lots and the Stadium Park/Astrodome and Fannin South stations. Toggle **3D**.
+2. **Open the planner.** NRG Stadium, 68,000 attendees, 98°F afternoon. 3 critical cells sit in the South Main and Astrodome Area parking fields at the stadium's edge, where crowd density and heat exposure overlap. High-risk cells spread further out toward the Stadium Park/Astrodome station. Toggle **3D**, or switch the venue dropdown to Daikin Park, Toyota Center, Shell Energy Stadium, TDECU Stadium or Rice Stadium — the same pipeline re-routes crowds and re-scores risk for each.
 3. **Click a critical cell.** Show the component breakdown, the evidence, and **Explain this recommendation**.
 4. **Simulate tab.** Add a cooling hub and shade. Critical zones and visitors routed through them drop.
-5. **Optimize tab.** Click **Optimize $1M plan**. The greedy search picks a mix of water stations, shade, a cooling hub and a shuttle: critical zones 5 → 0, visitors routed through critical zones 18,978 → 0, exposure burden −18% for $980K (default scenario and assumptions).
+5. **Optimize tab.** Click **Optimize $1M plan**. The greedy search picks 18 items — mostly water stations, plus shade, cooling hubs and a shuttle: critical zones 3 → 0, visitors routed through critical zones 17,109 → 0, exposure burden −10.2% for $990K (default NRG scenario and assumptions).
 6. **Close.** "FIFA is the case study. HeatShield becomes Houston's planning layer for every stadium event, festival, marathon and heat emergency."

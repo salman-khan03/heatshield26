@@ -55,13 +55,26 @@ export interface PathInfo {
   lengthM: number;
 }
 
+export interface VenueMeta {
+  id: string;
+  name: string;
+  short: string; // "<name> · <neighborhood>"
+  league: string;
+  capacity: number;
+  lat: number;
+  lng: number;
+  gates: { name: string; lat: number; lng: number }[];
+  alightStations: { name: string; lat: number; lng: number; distM: number; share: number }[];
+  counts: { parkingLots: number; parkingSpaces: number; lrtStationsUsed: number };
+}
+
 export interface DatasetMeta {
   generatedAt: string;
   h3Res: number;
   hexAreaKm2: number;
   cellCount: number;
-  stadium: { name: string; lat: number; lng: number; capacity: number };
-  gates: { name: string; lat: number; lng: number }[];
+  defaultVenue: string;
+  venues: VenueMeta[];
   heat: Record<
     Period,
     {
@@ -83,17 +96,21 @@ export interface DatasetMeta {
   canopySource: { name: string; raster: string; year: number };
   crowdAssumptions: Record<string, unknown>;
   places: { name: string; measures: string[]; brfssYear: string };
-  counts: { tracts: number; coolCenters: number; lrtStations: number; parkingLots: number; parkingSpaces: number; residents: number };
+  counts: { tracts: number; coolCenters: number; lrtStations: number; residents: number };
 }
 
 export interface Dataset {
   meta: DatasetMeta;
   cells: Cell[];
-  crowd: Partial<Record<CrowdLayer, Record<string, number>>>;
-  paths: PathInfo[];
+  crowdByVenue: Record<string, Partial<Record<CrowdLayer, Record<string, number>>>>;
+  pathsByVenue: Record<string, PathInfo[]>;
 }
 
+export const venueById = (ds: Dataset, venueId: string): VenueMeta =>
+  ds.meta.venues.find((v) => v.id === venueId) ?? ds.meta.venues.find((v) => v.id === ds.meta.defaultVenue) ?? ds.meta.venues[0];
+
 export interface Scenario {
+  venueId: string;
   attendance: number;
   airTempF: number;
   humidity: number;
@@ -117,6 +134,7 @@ export interface Intervention {
 export const DEFAULT_WEIGHTS: Weights = { heat: 0.4, crowd: 0.25, vuln: 0.2, shade: 0.1, cooling: 0.05 };
 
 export const DEFAULT_SCENARIO: Scenario = {
+  venueId: "nrg",
   attendance: 68000,
   airTempF: 98,
   humidity: 50,
@@ -276,8 +294,9 @@ export function scenarioBase(ds: Dataset, s: Scenario): ScenarioBase {
     walk: s.modeSplit.walk / 100,
   };
   const scale = s.attendance / 60; // person-minutes per attendee → person-hours
+  const crowd = ds.crowdByVenue[s.venueId] ?? {};
   const perPerson = (target: Float64Array, layer: CrowdLayer, weight: number) => {
-    const m = ds.crowd[layer];
+    const m = crowd[layer];
     if (!m || weight === 0) return;
     for (const k in m) target[+k] += weight * m[k] * scale;
   };
@@ -465,7 +484,7 @@ export function summarize(ds: Dataset, s: Scenario, scores: CellScore[]): Summar
     walk: s.modeSplit.walk / 100,
   };
   let visitors = 0;
-  for (const p of ds.paths) {
+  for (const p of ds.pathsByVenue[s.venueId] ?? []) {
     if (p.hexes.some((h) => scores[h]?.tier === "critical")) visitors += s.attendance * modeFrac[p.mode] * p.share;
   }
 

@@ -15,7 +15,7 @@ const geistMono = Geist_Mono({
 export const metadata: Metadata = {
   title: "HeatShield 26 — Mega-event heat risk planner for Houston",
   description:
-    "Geospatial decision support that shows where event crowds, extreme heat, vulnerability, missing shade and poor cooling access overlap around NRG Stadium — and what to do about it.",
+    "Geospatial decision support that shows where event crowds, extreme heat, vulnerability, missing shade and poor cooling access overlap at Houston's stadiums and arenas — and what to do about it.",
 };
 
 export default function RootLayout({ children }: LayoutProps<"/">) {

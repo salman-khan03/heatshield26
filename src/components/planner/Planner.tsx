@@ -23,7 +23,7 @@ import PrioritiesPanel from "./PrioritiesPanel";
 import ScenarioPanel from "./ScenarioPanel";
 import SimulatePanel from "./SimulatePanel";
 import ZonePanel from "./ZonePanel";
-import { METRICS, type MapLayers, type MetricKey } from "./types";
+import { layersForVenue, METRICS, type MetricKey, type RawLayers } from "./types";
 
 const MapView = dynamic(() => import("./MapView"), {
   ssr: false,
@@ -40,7 +40,7 @@ const TABS: { key: Tab; label: string }[] = [
 
 export default function Planner() {
   const [ds, setDs] = useState<Dataset | null>(null);
-  const [layers, setLayers] = useState<MapLayers | null>(null);
+  const [layers, setLayers] = useState<RawLayers | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
 
   const [scenario, setScenario] = useState<Scenario>(DEFAULT_SCENARIO);
@@ -80,6 +80,11 @@ export default function Planner() {
 
   const dScenario = useDeferredValue(scenario);
   const dWeights = useDeferredValue(weights);
+
+  // Venue switches drive the map's center/geometry immediately (not deferred) so the click feels
+  // instant; the heavier per-cell scoring below still rides the deferred scenario like everything else.
+  const venue = useMemo(() => ds?.meta.venues?.find((v) => v.id === scenario.venueId) ?? ds?.meta.venues?.[0] ?? null, [ds, scenario.venueId]);
+  const mapLayers = useMemo(() => (layers && venue ? layersForVenue(layers, venue.id) : null), [layers, venue]);
 
   const baseline = useMemo(() => (ds ? evaluate(ds, dScenario, dWeights, []) : null), [ds, dScenario, dWeights]);
   const current = useMemo(() => (ds ? (interventions.length ? evaluate(ds, dScenario, dWeights, interventions) : baseline) : null), [ds, dScenario, dWeights, interventions, baseline]);
@@ -136,7 +141,7 @@ export default function Planner() {
           <ShieldMark />
           <span className="text-[15px] font-semibold tracking-tight">HeatShield 26</span>
         </Link>
-        <span className="hidden text-[12px] text-muted md:inline">Mega-event heat risk planner · Houston Stadium / NRG Park</span>
+        <span className="hidden text-[12px] text-muted md:inline">Mega-event heat risk planner · {venue?.short ?? "Houston"}</span>
         <nav className="ml-auto flex items-center gap-4 text-[12.5px] text-muted">
           <Link href="/" className="hover:text-text">
             Overview
@@ -160,15 +165,16 @@ export default function Planner() {
             setIs3D={setIs3D}
             showRoutes={showRoutes}
             setShowRoutes={setShowRoutes}
-            capacity={ds?.meta.stadium.capacity ?? 68777}
+            venues={ds?.meta.venues ?? []}
           />
         </aside>
 
         <main className="relative order-1 h-[64vh] shrink-0 lg:order-2 lg:h-auto lg:flex-1">
-          {ds && layers && current ? (
+          {ds && mapLayers && venue && current ? (
             <MapView
               ds={ds}
-              layers={layers}
+              venue={venue}
+              layers={mapLayers}
               scores={current.scores}
               metric={metric}
               is3D={is3D}

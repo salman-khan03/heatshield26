@@ -40,9 +40,7 @@ yarn-error.log*
 *.tsbuildinfo
 next-env.d.ts
 
-# heatshield data pipeline cache (re-downloadable)
-/data/raw
-/data/build.log
-/data/probe.mjs
+# heatshield data pipeline cache and logs (re-downloadable/regenerable)
+/data/
 !.env.example
 /public/maplibre

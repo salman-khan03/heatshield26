@@ -5,6 +5,7 @@ import {
   type Mode,
   type Period,
   type Scenario,
+  type VenueMeta,
   type Weights,
   COMPONENT_LABEL,
   DEFAULT_SCENARIO,
@@ -60,26 +61,48 @@ interface Props {
   setIs3D: (v: boolean) => void;
   showRoutes: boolean;
   setShowRoutes: (v: boolean) => void;
-  capacity: number;
+  venues: VenueMeta[];
 }
 
 export default function ScenarioPanel(p: Props) {
-  const { scenario: s, setScenario } = p;
+  const { scenario: s, setScenario, venues } = p;
   const set = <K extends keyof Scenario>(k: K, v: Scenario[K]) => setScenario({ ...s, [k]: v });
+  const venue = venues.find((v) => v.id === s.venueId) ?? venues[0];
   const hi = heatIndexF(s.airTempF, s.humidity);
   const cat = nwsCategory(hi);
   const nw = normalizeWeights(p.weights);
+  const attendanceMax = venue ? Math.max(10_000, Math.ceil((venue.capacity * 1.1) / 1000) * 1000) : 75_000;
 
   return (
     <div>
       <Section title="Event scenario">
         <div className="mb-4 rounded-lg border border-line bg-ink px-3 py-2.5">
-          <div className="text-[11px] uppercase tracking-wider text-faint">Venue</div>
-          <div className="text-[14px] font-semibold">Houston Stadium · NRG Park</div>
-          <div className="text-[11px] text-muted">FIFA-listed capacity {fmtInt(p.capacity)}</div>
+          <label className="mb-1.5 block text-[11px] uppercase tracking-wider text-faint" htmlFor="venue-select">
+            Venue
+          </label>
+          <select
+            id="venue-select"
+            value={s.venueId}
+            onChange={(e) => {
+              const next = venues.find((v) => v.id === e.target.value);
+              if (next) setScenario({ ...s, venueId: next.id, attendance: next.capacity });
+            }}
+            className="w-full appearance-none rounded-md border border-line-strong bg-panel-2 px-2 py-1.5 text-[14px] font-semibold text-text"
+          >
+            {venues.map((v) => (
+              <option key={v.id} value={v.id}>
+                {v.name}
+              </option>
+            ))}
+          </select>
+          {venue && (
+            <div className="mt-1.5 text-[11px] text-muted">
+              {venue.league} · capacity {fmtInt(venue.capacity)}
+            </div>
+          )}
         </div>
         <div className="space-y-4">
-          <Slider label="Attendance" value={s.attendance} min={5000} max={75000} step={1000} format={fmtInt} onChange={(v) => set("attendance", v)} />
+          <Slider label="Attendance" value={s.attendance} min={2000} max={attendanceMax} step={1000} format={fmtInt} onChange={(v) => set("attendance", v)} />
           <div>
             <div className="mb-1.5 text-[13px] text-text/90">Event window</div>
             <Segmented<Period>
@@ -129,7 +152,8 @@ export default function ScenarioPanel(p: Props) {
           <Slider label="Car arrivals who tailgate" value={s.tailgateShare} min={0} max={100} step={5} format={(v) => `${v}%`} onChange={(v) => set("tailgateShare", v)} />
         </div>
         <p className="mt-3 text-[11px] leading-relaxed text-faint">
-          Visible assumptions, not FIFA pedestrian counts. Parking demand is distributed across NRG Park lots by their OpenStreetMap capacity.
+          Visible assumptions, not measured pedestrian counts. Parking demand is distributed across the venue&apos;s nearby lots and garages by
+          their OpenStreetMap (or area-estimated) capacity.
         </p>
       </Section>
 

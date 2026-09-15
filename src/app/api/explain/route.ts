@@ -14,7 +14,7 @@ interface ExplainBody {
     facts: Record<string, string | number | null>;
   };
   recommendation: { type: string; label: string; costAssumptionUSD: number; modeledEffect: string; description: string };
-  scenario: { attendance: number; airTempF: number; humidity: number; window: string; modeSplitPct: Record<string, number> };
+  scenario: { venueName: string; attendance: number; airTempF: number; humidity: number; window: string; modeSplitPct: Record<string, number> };
 }
 
 const MODEL = process.env.GEMINI_MODEL || "gemini-flash-latest";
@@ -30,7 +30,7 @@ function template(b: ExplainBody): string {
     .slice(0, 3);
   const list = drivers.map((d) => `${d.k.toLowerCase()} (${d.score}/100)`).join(", ");
   const f = b.zone.facts;
-  return `${b.zone.neighborhood} scores ${b.zone.riskIndex}/100 (${b.zone.tier}) mainly because of ${list}. Under a ${b.scenario.airTempF}°F, ${b.scenario.humidity}% humidity ${b.scenario.window.toLowerCase()} scenario the local heat index reaches about ${f.scenarioHeatIndexF}°F, tree canopy is ${f.treeCanopyPct_NLCD}% and the nearest City cool center is ${f.distanceToCoolingMi} mi away. A ${b.recommendation.label.toLowerCase()} targets these drivers directly (${b.recommendation.modeledEffect.replace(/\.$/, "")}; cost assumption $${b.recommendation.costAssumptionUSD.toLocaleString("en-US")}). The same asset can be redeployed for future NRG Park events, festivals and city heat emergencies.`;
+  return `${b.zone.neighborhood} scores ${b.zone.riskIndex}/100 (${b.zone.tier}) mainly because of ${list}. Under a ${b.scenario.airTempF}°F, ${b.scenario.humidity}% humidity ${b.scenario.window.toLowerCase()} scenario at ${b.scenario.venueName}, the local heat index reaches about ${f.scenarioHeatIndexF}°F, tree canopy is ${f.treeCanopyPct_NLCD}% and the nearest City cool center is ${f.distanceToCoolingMi} mi away. A ${b.recommendation.label.toLowerCase()} targets these drivers directly (${b.recommendation.modeledEffect.replace(/\.$/, "")}; cost assumption $${b.recommendation.costAssumptionUSD.toLocaleString("en-US")}). The same asset can be redeployed for future events at this venue, festivals and city heat emergencies.`;
 }
 
 export async function POST(request: Request) {

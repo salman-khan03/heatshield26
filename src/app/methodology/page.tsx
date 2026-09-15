@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import ShieldMark from "@/components/ShieldMark";
+import RebuildingNotice from "@/components/RebuildingNotice";
 import { COMPONENT_LABEL, DEFAULT_SCENARIO, DEFAULT_WEIGHTS, INTERVENTIONS, REF, TIERS, type ComponentKey, type Period } from "@/lib/model";
 import { fmtInt } from "@/lib/format";
 import { loadDataset } from "@/lib/server-data";
@@ -57,9 +58,9 @@ const SOURCES = [
     href: "https://gis.h-gac.com/arcgis/rest/services/Open_Data/Transportation/MapServer",
   },
   {
-    name: "NRG Stadium footprint and NRG Park parking lots with capacities",
+    name: "Six venue footprints and nearby parking lots/garages",
     org: "© OpenStreetMap contributors",
-    use: "Gate locations, car-arrival distribution by lot capacity, tailgating dwell",
+    use: "Gate locations, car-arrival distribution by lot capacity (or area-estimated where untagged), tailgating dwell",
     href: "https://www.openstreetmap.org/",
   },
   {
@@ -75,17 +76,23 @@ const SOURCES = [
     href: "https://www.census.gov/geographies/mapping-files/time-series/geo/tiger-line-file.html",
   },
   {
-    name: "Houston Stadium capacity (68,777)",
+    name: "NRG Stadium capacity (68,777)",
     org: "FIFA World Cup 2026 support center",
-    use: "Attendance reference for the default scenario",
+    use: "Attendance reference for the flagship scenario",
     href: "https://gpcustomersupportfwc2026.tickets.fifa.com/hc/en-gb/articles/28784010437021-2-What-are-the-official-addresses-stadium-capacities-and-maps-of-the-FIFA-World-Cup-2026-stadiums",
   },
+  { name: "Daikin Park capacity (41,168) — formerly Minute Maid Park", org: "Wikipedia", use: "Attendance reference (Astros, MLB)", href: "https://en.wikipedia.org/wiki/Daikin_Park" },
+  { name: "Toyota Center capacity (18,500)", org: "Wikipedia", use: "Attendance reference (Rockets, NBA)", href: "https://en.wikipedia.org/wiki/Toyota_Center" },
+  { name: "Shell Energy Stadium capacity (22,039)", org: "Wikipedia", use: "Attendance reference (Dynamo FC / Dash, MLS / NWSL)", href: "https://en.wikipedia.org/wiki/Shell_Energy_Stadium" },
+  { name: "TDECU Stadium capacity (≈40,000)", org: "Wikipedia", use: "Attendance reference (UH Cougars, NCAA football)", href: "https://en.wikipedia.org/wiki/TDECU_Stadium" },
+  { name: "Rice Stadium capacity (47,000)", org: "Wikipedia", use: "Attendance reference (Rice Owls, NCAA football)", href: "https://en.wikipedia.org/wiki/Rice_Stadium_(Rice_University)" },
 ];
 
 const PERIOD_NAME: Record<Period, string> = { AM: "Morning", AF: "Afternoon", PM: "Evening" };
 
 export default async function Methodology() {
   const ds = await loadDataset();
+  if (!ds.meta.venues?.length) return <RebuildingNotice />;
   const m = ds.meta;
   const crowd = m.crowdAssumptions as {
     walkSpeedMps: number;
@@ -93,10 +100,15 @@ export default async function Methodology() {
     railPlatformWaitMin: number;
     railEgressQueueMin: number;
     rideshareWaitMin: number;
-    alightShare: Record<string, number>;
     walkOriginRingM: number;
     walkOriginCount: number;
+    alightStationCount: number;
+    gateQueueBufferM: number;
+    parkingCapacityPerM2: number;
+    parkingLevelsAssumed: number;
+    fallbackLotShareOfCapacity: number;
   };
+  const flagship = m.venues.find((v) => v.id === m.defaultVenue) ?? m.venues[0];
 
   const components: { key: ComponentKey; how: string }[] = [
     {
@@ -129,8 +141,8 @@ export default async function Methodology() {
 
       <h1 className="mt-8 text-[36px] font-semibold tracking-tight">Methodology &amp; data</h1>
       <p className="mt-3 text-[15px] leading-relaxed text-muted">
-        HeatShield 26 scores {fmtInt(m.cellCount)} H3 resolution-{m.h3Res} hexagons ({m.hexAreaKm2} km² each) covering Downtown, Midtown, the Museum District, the Texas Medical Center, NRG Park and South Main. The Heat Event Risk Index is a{" "}
-        <b className="text-text">decision-support composite</b>, not a medical prediction. It ranks where the same heat is most likely to harm the most people, so planners can compare options consistently.
+        HeatShield 26 scores {fmtInt(m.cellCount)} H3 resolution-{m.h3Res} hexagons ({m.hexAreaKm2} km² each) covering Downtown, Midtown, Montrose, River Oaks, Uptown/Galleria, Rice/West University, the Texas Medical Center, NRG Park, East End, Near Northside, the Heights and the University of Houston — inside Loop 610 and a short buffer beyond it. The Heat Event Risk Index is a{" "}
+        <b className="text-text">decision-support composite</b>, not a medical prediction. It ranks where the same heat is most likely to harm the most people, so planners can compare options consistently across any of {m.venues.length} real Houston venues.
       </p>
 
       <Block title="The index">
@@ -213,22 +225,50 @@ export default async function Methodology() {
         </p>
       </Block>
 
-      <Block title="Crowd model (all assumptions, all visible)">
+      <Block title="Crowd model — computed the same way for every venue">
         <p className="text-[14px] leading-relaxed text-muted">
-          No public pedestrian counts exist for FIFA matches, so HeatShield routes an attendance scenario instead of pretending to know. Defaults: {fmtInt(DEFAULT_SCENARIO.attendance)} attendees, arrival split{" "}
+          No public pedestrian counts exist for any of these events, so HeatShield routes an attendance scenario instead of pretending to know. The <b className="text-text">algorithm is identical for all {m.venues.length} venues</b> — only the geometry (gates, nearby lots, nearest rail stations) differs, computed fresh from OpenStreetMap and METRO data rather than hand-typed per venue. Scenario defaults ({flagship.name}): {fmtInt(DEFAULT_SCENARIO.attendance)} attendees, arrival split{" "}
           {Object.entries(DEFAULT_SCENARIO.modeSplit)
             .map(([k, v]) => `${v}% ${k}`)
             .join(", ")}
-          ; {DEFAULT_SCENARIO.tailgateShare}% of car arrivals tailgate for {DEFAULT_SCENARIO.tailgateHours} h. All are sliders in the planner.
+          ; {DEFAULT_SCENARIO.tailgateShare}% of car arrivals tailgate for {DEFAULT_SCENARIO.tailgateHours} h. All are sliders in the planner, per venue.
         </p>
         <ul className="mt-4 space-y-2 text-[13.5px] text-muted">
-          <li>• <b className="text-text">Rail:</b> riders alight at {Object.entries(crowd.alightShare).map(([k, v]) => `${k} (${Math.round(v * 100)}%)`).join(", ")} and walk to the nearest gate; {crowd.railPlatformWaitMin} min inbound platform wait split across Red Line stations north of the TMC; {crowd.railEgressQueueMin} min post-event queue at the NRG-area station.</li>
-          <li>• <b className="text-text">Car:</b> distributed across {m.counts.parkingLots} NRG Park lots ({fmtInt(m.counts.parkingSpaces)} OpenStreetMap-tagged spaces) by capacity; walk to nearest gate; tailgating dwell spread over each lot’s cells.</li>
-          <li>• <b className="text-text">Rideshare:</b> two assumed curbside zones at the west (Kirby Dr) and east (Fannin St) edges of NRG Park, {crowd.rideshareWaitMin} min wait, then walk to gate.</li>
+          <li>• <b className="text-text">Rail:</b> riders alight at the {crowd.alightStationCount} nearest existing METRO stations (inverse-distance weighted) and walk to the nearest gate; {crowd.railPlatformWaitMin} min inbound platform wait split across the stations boarding toward the venue; {crowd.railEgressQueueMin} min post-event queue at each alight station.</li>
+          <li>• <b className="text-text">Car:</b> distributed across nearby OSM parking lots/garages by tagged capacity, or by polygon area (≈1 space per {Math.round(1 / crowd.parkingCapacityPerM2)} m² surface, × {crowd.parkingLevelsAssumed} assumed levels for garages) where no tag exists; walk to nearest gate; tailgating dwell spread over each lot’s cells. A venue with no OSM parking nearby gets one synthetic lot sized at {Math.round(crowd.fallbackLotShareOfCapacity * 100)}% of its capacity, clearly labeled as assumed.</li>
+          <li>• <b className="text-text">Rideshare:</b> two assumed curbside zones offset from the venue centroid, {crowd.rideshareWaitMin} min wait, then walk to gate.</li>
           <li>• <b className="text-text">Walk-up:</b> {crowd.walkOriginCount} origins on a {(crowd.walkOriginRingM / 1609.34).toFixed(1)}-mile ring, straight to the nearest gate.</li>
-          <li>• <b className="text-text">Everyone:</b> {crowd.gateQueueMin} min security queue in cells touching a 150 m buffer around the stadium. Walking speed {crowd.walkSpeedMps} m/s.</li>
+          <li>• <b className="text-text">Everyone:</b> {crowd.gateQueueMin} min security queue in cells touching a {crowd.gateQueueBufferM} m buffer around the venue footprint. Walking speed {crowd.walkSpeedMps} m/s.</li>
         </ul>
-        <p className="mt-3 text-[12.5px] text-faint">Routes are straight lines, not a street network, which is adequate inside NRG Park’s open lots and coarse outside it. “Visitors routed through critical zones” counts attendees whose modeled route touches at least one critical cell.</p>
+        <p className="mt-3 text-[12.5px] text-faint">Routes are straight lines, not a street network — adequate inside a venue’s own lots, coarser across downtown blocks. “Visitors routed through critical zones” counts attendees whose modeled route touches at least one critical cell.</p>
+
+        <p className="mt-5 text-[14px] font-medium text-text">What the pipeline computed per venue</p>
+        <div className="mt-3 overflow-x-auto">
+          <table className="w-full min-w-[760px] text-left text-[13px]">
+            <thead className="text-[11px] uppercase tracking-wider text-faint">
+              <tr>
+                <th className="pb-2 pr-3 font-medium">Venue</th>
+                <th className="pb-2 pr-3 font-medium">League</th>
+                <th className="pb-2 pr-3 text-right font-medium">Capacity</th>
+                <th className="pb-2 pr-3 text-right font-medium">Parking lots</th>
+                <th className="pb-2 pr-3 text-right font-medium">Spaces</th>
+                <th className="pb-2 font-medium">Nearest stations used (weight)</th>
+              </tr>
+            </thead>
+            <tbody>
+              {m.venues.map((v) => (
+                <tr key={v.id} className="border-t border-line align-top">
+                  <td className="py-2 pr-3 font-medium">{v.name}</td>
+                  <td className="py-2 pr-3 text-muted">{v.league}</td>
+                  <td className="tabular py-2 pr-3 text-right font-mono">{fmtInt(v.capacity)}</td>
+                  <td className="tabular py-2 pr-3 text-right font-mono">{v.counts.parkingLots}</td>
+                  <td className="tabular py-2 pr-3 text-right font-mono">{fmtInt(v.counts.parkingSpaces)}</td>
+                  <td className="py-2 text-muted">{v.alightStations.map((s) => `${s.name} (${Math.round(s.share * 100)}%)`).join(", ")}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
       </Block>
 
       <Block title="Interventions (planning assumptions)">
@@ -274,8 +314,10 @@ export default async function Methodology() {
           <li>• H3AT rasters describe a single campaign day each (Aug 10, 2024 for 2024, and the 2020 campaign day); anomalies are applied to a user-chosen forecast, not a weather model.</li>
           <li>• SVI and PLACES describe residents, not visiting fans; visitor vulnerability (age, hydration, alcohol, travel fatigue) is not observed.</li>
           <li>• Tract population is split evenly across the cells whose centers fall in the tract.</li>
-          <li>• Cool center hours, event-day closures and indoor stadium conditions are not modeled.</li>
+          <li>• Cool center hours, event-day closures and indoor stadium/arena conditions are not modeled.</li>
           <li>• Intervention effects are additive heuristics with caps; they have not been validated against health outcomes.</li>
+          <li>• Downtown venues (Daikin Park, Toyota Center, Shell Energy Stadium) lean on parking garages that OSM often leaves uncapacitated, so more of their parking capacity is area-estimated than NRG Stadium’s individually tagged lots.</li>
+          <li>• Rail arrivals always use the {crowd.alightStationCount} geometrically nearest existing stations, even for a venue with no direct line — a simplification, not a real transit assignment.</li>
         </ul>
       </Block>
 

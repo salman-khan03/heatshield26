@@ -9,6 +9,7 @@ import {
   type Dataset,
   type Intervention,
   type InterventionType,
+  type VenueMeta,
   INTERVENTIONS,
   TIERS,
   zoneLabel,
@@ -49,6 +50,7 @@ const MODE_COLOR: Record<string, string> = { rail: "#f87171", car: "#fbbf24", ri
 
 interface Props {
   ds: Dataset;
+  venue: VenueMeta;
   layers: MapLayers;
   scores: CellScore[];
   metric: MetricKey;
@@ -61,13 +63,17 @@ interface Props {
   onCellClick: (i: number) => void;
 }
 
+const stadiumMarkerHTML = (name: string) =>
+  `<div class="relative h-3 w-3"><span class="pulse-ring absolute inset-0 rounded-full bg-white/70"></span><span class="absolute inset-0 rounded-full bg-white"></span></div><div class="mt-1 whitespace-nowrap rounded bg-black/70 px-1.5 py-0.5 text-[10px] font-semibold tracking-wide text-white">${name.toUpperCase()}</div>`;
+
 export default function MapView(props: Props) {
-  const { ds, layers, scores, metric, is3D, showRoutes, selected, interventions, activeTool, flyTo, onCellClick } = props;
+  const { ds, venue, layers, scores, metric, is3D, showRoutes, selected, interventions, activeTool, flyTo, onCellClick } = props;
   const container = useRef<HTMLDivElement>(null);
   const mapRef = useRef<maplibregl.Map | null>(null);
   const readyRef = useRef(false);
   const pending = useRef<((map: maplibregl.Map) => void)[]>([]);
   const markers = useRef(new Map<string, maplibregl.Marker>());
+  const venueMarkerRef = useRef<maplibregl.Marker | null>(null);
   const clickRef = useRef(onCellClick);
   const scoresRef = useRef(scores);
   const metricRef = useRef(metric);
@@ -97,8 +103,8 @@ export default function MapView(props: Props) {
     const map = new maplibregl.Map({
       container: container.current,
       style: BASEMAP,
-      // Wide panes frame the NRG → Midtown corridor; narrow (phone) panes center on the stadium.
-      center: container.current.clientWidth < 640 ? [ds.meta.stadium.lng, ds.meta.stadium.lat - 0.004] : [ds.meta.stadium.lng + 0.012, ds.meta.stadium.lat + 0.018],
+      // Wide panes frame the venue and its surrounding corridor; narrow (phone) panes center on it.
+      center: container.current.clientWidth < 640 ? [venue.lng, venue.lat - 0.004] : [venue.lng + 0.012, venue.lat + 0.018],
       zoom: container.current.clientWidth < 640 ? 13 : 12.6,
       minZoom: 10.5,
       maxZoom: 17,
@@ -156,11 +162,11 @@ export default function MapView(props: Props) {
       map.addLayer({ id: "stations", type: "circle", source: "stations", paint: { "circle-radius": 4, "circle-color": "#0a0d12", "circle-stroke-color": "#f1f5f9", "circle-stroke-width": 2 } });
       map.addLayer({ id: "cool", type: "circle", source: "cool", paint: { "circle-radius": 5, "circle-color": "#38bdf8", "circle-stroke-color": "#0a0d12", "circle-stroke-width": 2 } });
 
-      // Stadium marker
+      // Venue marker (position/label updated on venue change — see the effect below)
       const el = document.createElement("div");
       el.className = "pointer-events-none flex flex-col items-center";
-      el.innerHTML = `<div class="relative h-3 w-3"><span class="pulse-ring absolute inset-0 rounded-full bg-white/70"></span><span class="absolute inset-0 rounded-full bg-white"></span></div><div class="mt-1 whitespace-nowrap rounded bg-black/70 px-1.5 py-0.5 text-[10px] font-semibold tracking-wide text-white">NRG STADIUM</div>`;
-      new maplibregl.Marker({ element: el, anchor: "top" }).setLngLat([ds.meta.stadium.lng, ds.meta.stadium.lat]).addTo(map);
+      el.innerHTML = stadiumMarkerHTML(venue.name);
+      venueMarkerRef.current = new maplibregl.Marker({ element: el, anchor: "top" }).setLngLat([venue.lng, venue.lat]).addTo(map);
 
       const onMove = (e: MapLayerMouseEvent) => {
         const f = e.features?.[0];
@@ -210,10 +216,13 @@ export default function MapView(props: Props) {
     return () => {
       readyRef.current = false;
       markerMap.clear();
+      venueMarkerRef.current = null;
       map.remove();
     };
+    // Runs once per dataset. `venue`/`layers` seed the initial view; later changes are handled
+    // by the dedicated effects below so switching venues doesn't tear down the whole map.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [ds, layers]);
+  }, [ds]);
 
   const whenReady = (fn: (map: maplibregl.Map) => void) => {
     const map = mapRef.current;
@@ -232,6 +241,32 @@ export default function MapView(props: Props) {
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [scores, metric]);
+
+  // venue-specific overlay geometry (stadium footprint, lots, paths) — swapped in place on venue change
+  useEffect(() => {
+    whenReady((map) => {
+      (map.getSource("lots") as GeoJSONSource).setData(layers.lots);
+      (map.getSource("stadium") as GeoJSONSource).setData(layers.stadium);
+      (map.getSource("paths") as GeoJSONSource).setData(layers.paths);
+    });
+  }, [layers]);
+
+  // venue marker + camera
+  useEffect(() => {
+    whenReady((map) => {
+      venueMarkerRef.current?.setLngLat([venue.lng, venue.lat]);
+      const el = venueMarkerRef.current?.getElement();
+      if (el) el.innerHTML = stadiumMarkerHTML(venue.name);
+      const narrow = (container.current?.clientWidth ?? 1200) < 640;
+      map.flyTo({
+        center: narrow ? [venue.lng, venue.lat - 0.004] : [venue.lng + 0.012, venue.lat + 0.018],
+        zoom: narrow ? 13 : 12.6,
+        duration: 1100,
+        essential: true,
+      });
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [venue.id]);
 
   // 2D / 3D
   useEffect(() => {
@@ -292,5 +327,5 @@ export default function MapView(props: Props) {
     });
   }, [interventions, ds]);
 
-  return <div ref={container} className="h-full w-full" aria-label="Interactive heat risk map of the NRG Stadium area" />;
+  return <div ref={container} className="h-full w-full" aria-label={`Interactive heat risk map around ${venue.name}`} />;
 }

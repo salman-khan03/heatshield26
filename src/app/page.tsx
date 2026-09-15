@@ -1,15 +1,18 @@
 import Link from "next/link";
 import ShieldMark from "@/components/ShieldMark";
+import RebuildingNotice from "@/components/RebuildingNotice";
 import { DEFAULT_SCENARIO, DEFAULT_WEIGHTS, TIERS, evaluate } from "@/lib/model";
 import { fmtInt } from "@/lib/format";
 import { loadDataset } from "@/lib/server-data";
 
 export default async function Home() {
   const ds = await loadDataset();
+  if (!ds.meta.venues?.length) return <RebuildingNotice />;
+  const venue = ds.meta.venues.find((v) => v.id === DEFAULT_SCENARIO.venueId) ?? ds.meta.venues[0];
   const { scores, summary } = evaluate(ds, DEFAULT_SCENARIO, DEFAULT_WEIGHTS, []);
 
   // Project the hex grid for the hero graphic.
-  const lat0 = ds.meta.stadium.lat;
+  const lat0 = venue.lat;
   const k = Math.cos((lat0 * Math.PI) / 180);
   const xs = ds.cells.flatMap((c) => c.b.map(([lng]) => lng * k));
   const ys = ds.cells.flatMap((c) => c.b.map(([, lat]) => lat));
@@ -21,18 +24,18 @@ export default async function Home() {
   const color = (risk: number) => TIERS.find((t) => risk >= t.min)!.color;
   // Same visual language as the planner: hotspots loud, the moderate majority quiet.
   const heroOpacity = (risk: number) => (risk >= 75 ? 0.95 : risk >= 60 ? 0.75 : risk >= 45 ? 0.22 : 0.32);
-  const stadium = px(ds.meta.stadium.lng, ds.meta.stadium.lat).split(",").map(Number);
+  const venuePt = px(venue.lng, venue.lat).split(",").map(Number);
 
   const stats = [
     { value: "431,348", label: "street-level heat observations in the H3AT Houston campaign, Aug 10, 2024", href: "https://www.h3at.org/2024-campaign/2024-campaign-results" },
     { value: "14°F", label: "measured gap between Houston’s hottest and coolest neighborhoods (H3AT 2024)", href: "https://www.h3at.org/2024-campaign/2024-campaign-results" },
-    { value: "68,777", label: "capacity of FIFA’s Houston Stadium at NRG Park", href: "https://gpcustomersupportfwc2026.tickets.fifa.com/hc/en-gb/articles/28784010437021-2-What-are-the-official-addresses-stadium-capacities-and-maps-of-the-FIFA-World-Cup-2026-stadiums" },
-    { value: fmtInt(ds.meta.cellCount), label: "~0.1 km² hex cells scored from 11 open datasets", href: "/methodology" },
+    { value: String(ds.meta.venues.length), label: `real Houston venues covered — ${venue.name} is the flagship scenario, capacity ${fmtInt(venue.capacity)}`, href: "/methodology" },
+    { value: fmtInt(ds.meta.cellCount), label: "~0.1 km² hex cells inside Loop 610, scored from 11 open datasets", href: "/methodology" },
   ];
 
   const steps = [
     { n: "01", title: "Measure", body: "H3AT street-level heat models, USFS tree canopy, Landsat surface temperature, CDC social vulnerability and chronic-disease prevalence, City of Houston cool centers." },
-    { n: "02", title: "Model the crowd", body: "Attendance and arrival-mode assumptions are routed from METRORail stations, NRG Park lots (by real capacity), rideshare curbs and walk-ups to the gates." },
+    { n: "02", title: "Model the crowd", body: "Attendance and arrival-mode assumptions are routed from METRORail stations, each venue's nearby lots and garages (by real or estimated capacity), rideshare curbs and walk-ups to the gates." },
     { n: "03", title: "Score risk", body: "A transparent Heat Event Risk Index: 40% heat, 25% crowd, 20% vulnerability, 10% shade deficit, 5% cooling access. Every weight is adjustable." },
     { n: "04", title: "Act", body: "Place cooling hubs, shade, water or shuttles and watch the metrics move — or give the optimizer a budget and get a ranked portfolio." },
   ];
@@ -63,7 +66,7 @@ export default async function Home() {
             Where should Houston invest <span className="text-accent">$1M</span> to protect visitors and residents from extreme heat during its next mega-event?
           </h1>
           <p className="mt-5 max-w-xl text-pretty text-[16px] leading-relaxed text-muted">
-            HeatShield 26 is a geospatial decision-support platform. It finds where event crowds, extreme heat, social and health vulnerability, missing shade and poor cooling access overlap around NRG Stadium — and tells planners where cooling hubs, shade, water and shuttles do the most good.
+            HeatShield 26 is a geospatial decision-support platform covering Houston inside Loop 610. It finds where event crowds, extreme heat, social and health vulnerability, missing shade and poor cooling access overlap at any of {ds.meta.venues.length} real Houston venues — and tells planners where cooling hubs, shade, water and shuttles do the most good.
           </p>
           <div className="mt-8 flex flex-wrap gap-3">
             <Link href="/planner" className="rounded-xl bg-accent px-5 py-3 text-[15px] font-semibold text-black shadow-[0_8px_30px_#ff7a1a44] transition hover:brightness-110">
@@ -77,20 +80,20 @@ export default async function Home() {
 
         <figure className="relative">
           <div className="overflow-hidden rounded-2xl border border-line-strong bg-panel p-3 shadow-2xl">
-            <svg viewBox={`0 0 ${W} ${H}`} className="h-auto w-full" role="img" aria-label="Hex map of baseline heat event risk around NRG Stadium">
+            <svg viewBox={`0 0 ${W} ${H}`} className="h-auto w-full" role="img" aria-label={`Hex map of baseline heat event risk around ${venue.name}, one of ${ds.meta.venues.length} Houston venues HeatShield covers`}>
               {ds.cells.map((c, i) => (
                 <polygon key={c.id} points={c.b.map(([lng, lat]) => px(lng, lat)).join(" ")} fill={color(scores[i].risk)} fillOpacity={heroOpacity(scores[i].risk)} stroke="#0a0d12" strokeWidth={0.6} />
               ))}
-              <circle cx={stadium[0]} cy={stadium[1]} r={10} fill="none" stroke="#fff" strokeWidth={1.5} className="pulse-ring" style={{ transformOrigin: `${stadium[0]}px ${stadium[1]}px` }} />
-              <circle cx={stadium[0]} cy={stadium[1]} r={4} fill="#fff" />
-              <text x={stadium[0] + 9} y={stadium[1] + 4} fill="#fff" fontSize={12} fontWeight={600}>
-                NRG Stadium
+              <circle cx={venuePt[0]} cy={venuePt[1]} r={10} fill="none" stroke="#fff" strokeWidth={1.5} className="pulse-ring" style={{ transformOrigin: `${venuePt[0]}px ${venuePt[1]}px` }} />
+              <circle cx={venuePt[0]} cy={venuePt[1]} r={4} fill="#fff" />
+              <text x={venuePt[0] + 9} y={venuePt[1] + 4} fill="#fff" fontSize={12} fontWeight={600}>
+                {venue.name}
               </text>
             </svg>
           </div>
           <figcaption className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-1 text-[12px] text-muted">
             <span>
-              Baseline scenario: {fmtInt(DEFAULT_SCENARIO.attendance)} attendees · {DEFAULT_SCENARIO.airTempF}°F afternoon ·{" "}
+              Baseline scenario: {venue.name}, {fmtInt(DEFAULT_SCENARIO.attendance)} attendees · {DEFAULT_SCENARIO.airTempF}°F afternoon ·{" "}
               <b className="text-text">{summary.criticalZones}</b> critical, <b className="text-text">{summary.tierCounts.high}</b> high-risk cells
             </span>
           </figcaption>
@@ -127,7 +130,7 @@ export default async function Home() {
             The World Cup is the stress test. HeatShield is built for every mega-event Houston hosts next.
           </h2>
           <p className="mt-4 max-w-3xl text-[15px] leading-relaxed text-muted">
-            Swap the venue, attendance and arrival assumptions and the same pipeline scores a Texans game, the Rodeo, a marathon route, a festival or a citywide heat emergency. Cooling hubs and shade placed for one event become reusable resilience infrastructure for the neighborhoods around it.
+            Pick the venue — NRG Stadium, Daikin Park, Toyota Center, Shell Energy Stadium, TDECU Stadium or Rice Stadium — and swap the attendance and arrival assumptions; the same pipeline scores an Astros game, a Rockets or Dynamo night, a Texans Sunday, the Rodeo, a UH or Rice football Saturday, or a citywide heat emergency. Cooling hubs and shade placed for one event become reusable resilience infrastructure for the neighborhoods around it.
           </p>
         </div>
       </section>

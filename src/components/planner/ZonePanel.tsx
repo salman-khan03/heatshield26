@@ -144,7 +144,14 @@ function ZoneDetail({ ds, score: s, cell, weights, scenario, onPlace }: { ds: Da
             },
           },
           recommendation: { type: rec, label: spec.label, costAssumptionUSD: spec.cost, modeledEffect: spec.effect, description: spec.description },
-          scenario: { attendance: scenario.attendance, airTempF: scenario.airTempF, humidity: scenario.humidity, window: PERIOD_LABEL[scenario.period], modeSplitPct: scenario.modeSplit },
+          scenario: {
+            venueName: (ds.meta.venues?.find((v) => v.id === scenario.venueId) ?? ds.meta.venues?.[0])?.name ?? "the venue",
+            attendance: scenario.attendance,
+            airTempF: scenario.airTempF,
+            humidity: scenario.humidity,
+            window: PERIOD_LABEL[scenario.period],
+            modeSplitPct: scenario.modeSplit,
+          },
         }),
       });
       const j = await res.json();

@@ -53,3 +53,20 @@ for (const s of [
   const e = evaluate(ds, s, DEFAULT_WEIGHTS, []);
   console.log(`scenario att=${s.attendance} T=${s.airTempF} ${s.period}: critical ${e.summary.criticalZones}, high+ ${e.summary.highPlusZones}, visitors ${e.summary.visitorsThroughCritical}`);
 }
+
+// venue coverage — every venue should route a non-trivial share of attendees and evaluate fast
+console.log(`\n${ds.meta.venues.length} venues:`);
+for (const v of ds.meta.venues) {
+  const t3 = performance.now();
+  const e = evaluate(ds, { ...DEFAULT_SCENARIO, venueId: v.id, attendance: v.capacity }, DEFAULT_WEIGHTS, []);
+  const ms = performance.now() - t3;
+  const crowdLayers = Object.keys(ds.crowdByVenue[v.id] ?? {});
+  const pathCount = (ds.pathsByVenue[v.id] ?? []).length;
+  console.log(
+    `  ${v.name.padEnd(22)} cap ${String(v.capacity).padStart(6)}  lots ${String(v.counts.parkingLots).padStart(2)} (${String(v.counts.parkingSpaces).padStart(5)} spaces)  ` +
+      `stations ${v.counts.lrtStationsUsed}  layers [${crowdLayers.join(",")}]  paths ${pathCount}  ` +
+      `critical ${e.summary.criticalZones}  visitors ${e.summary.visitorsThroughCritical}  totalPH ${Math.round(e.summary.totalPersonHours)}  (${ms.toFixed(1)} ms)`,
+  );
+  if (pathCount === 0) console.log(`  ! WARNING: ${v.name} has zero routed paths`);
+  if (e.summary.totalPersonHours <= 0) console.log(`  ! WARNING: ${v.name} produced zero event person-hours`);
+}

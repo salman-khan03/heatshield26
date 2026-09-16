@@ -62,8 +62,8 @@ If you have only 3 minutes, do slides 1 → 2 → 4 → 6 → 8 → 9 → 12.
 ### Slide 4: The solution *(25 s)*
 > HeatShield does four things.
 >
-> First, it measures: we joined eleven open datasets onto about fourteen hundred hexagons, each about a tenth of a square kilometer.
-> Second, it models the crowd, routing attendance from the real rail stations and the real NRG parking lots, weighted by their actual capacities.
+> First, it measures: we joined eleven open datasets onto about thirty-four hundred hexagons across Houston inside Loop 610.
+> Second, it models the crowd, routing attendance from the real rail stations and each venue's own nearby lots and garages, weighted by their real or estimated capacities.
 > Third, it scores risk for every cell. Fourth, it helps you act: place interventions yourself, or give it a budget.
 >
 > And it's transparent. No black-box AI decides where the money goes.
@@ -77,7 +77,7 @@ If you have only 3 minutes, do slides 1 → 2 → 4 → 6 → 8 → 9 → 12.
 **Alt+Tab to the browser.**
 > This is the planner: sixty-eight thousand attendees, ninety-eight degrees, afternoon kickoff.
 >
-> Red is critical. It isn't the whole city. It's the NRG parking lots right at the stadium's edge, where people tailgate on asphalt, and the rail stations where fans queue. Five critical zones, seventy-nine high-risk zones, and almost nineteen thousand visitors whose route crosses a critical zone.
+> Red is critical. It isn't the whole city. It's the parking lots right at the stadium's edge, where people tailgate on asphalt, and the rail stations where fans queue. Three critical zones, about two hundred high-risk zones, and just over seventeen thousand visitors whose route crosses a critical zone.
 
 **Drag "Forecast air temperature" down to 88°F.**
 > At eighty-eight degrees, the critical zones disappear.
@@ -88,11 +88,14 @@ If you have only 3 minutes, do slides 1 → 2 → 4 → 6 → 8 → 9 → 12.
 **Map layer → Crowd → "Show modeled routes."**
 > And these are the arrival routes we model: rail, parking, rideshare, walk-ups.
 
+**Switch the venue dropdown to Toyota Center, then back to NRG.**
+> Same pipeline, six real Houston venues.
+
 **Switch the layer back to Risk and 2D.**
 
 ### Slide 7: Live demo 2, the evidence *(30 s)*
 **In the Zones tab, click row #1 (South Main).**
-> Click any zone and HeatShield shows why. This one scores seventy-nine. Crowd exposure is maxed at about fifty-four hundred person-hours. Two percent tree canopy. A heat index of a hundred and twelve. The nearest cooling center is more than a mile away.
+> Click any zone and HeatShield shows why. This one scores seventy-seven. Crowd exposure is near max at about forty-seven hundred person-hours. Two percent tree canopy. A heat index of a hundred and twelve. The nearest cooling center is more than a mile away.
 
 **Click "Explain this recommendation."**
 > This is the only place we use AI. Gemini turns these exact numbers into a short memo a planner could paste into a briefing. It's only allowed to use these facts; the scores themselves come from plain, deterministic code.
@@ -101,10 +104,10 @@ If you have only 3 minutes, do slides 1 → 2 → 4 → 6 → 8 → 9 → 12.
 **Optimize tab → "Optimize $1M plan."**
 > Knowing where the problem is isn't enough. Cities need to know what to do. So I give it the budget: one million dollars.
 >
-> In about a tenth of a second it evaluates over eleven thousand options and builds a portfolio: water and misting stations, shade over the queues, a cooling hub, a shuttle loop.
+> In about a tenth of a second it evaluates over ten thousand options and builds a portfolio: mostly water and misting stations, plus shade over the queues, a cooling hub, and a shuttle loop.
 
 **Point at the KPI strip at the bottom of the map.**
-> Critical zones go from five to zero. Visitors routed through critical zones go from nearly nineteen thousand to zero. Total exposure burden drops eighteen percent, for nine hundred and eighty thousand dollars.
+> Critical zones go from three to zero. Visitors routed through critical zones go from seventeen thousand to zero. Total exposure burden drops about ten percent, for nine hundred and ninety thousand dollars.
 >
 > The costs and effect sizes are planning assumptions, labeled that way. A city would swap in its real procurement numbers.
 
@@ -120,7 +123,7 @@ If you have only 3 minutes, do slides 1 → 2 → 4 → 6 → 8 → 9 → 12.
 > And the optimizer's results match a full re-scoring exactly.
 
 ### Slide 10: Impact & legacy *(25 s)*
-> Why does this matter beyond the World Cup? The tournament is over, but NRG Park hosts the Rodeo and Texans games every year, and Houston's heat season isn't getting shorter.
+> Why does this matter beyond the World Cup? The tournament is over, but NRG Park hosts the Rodeo and Texans games every year, Houston has five other major venues, and the heat season isn't getting shorter.
 >
 > It's feasible today. It only uses data Houston already publishes, it recommends things a city can actually buy, and it runs in a browser. And every cooling hub placed for one event becomes a resilience hub for the neighborhood next door.
 
@@ -141,7 +144,7 @@ If you have only 3 minutes, do slides 1 → 2 → 4 → 6 → 8 → 9 → 12.
 - **Open without "um, so…".** Memorize the first two sentences of slide 1 and the whole of slide 12.
 - **Talk to the judges, not the screen.** Glance at the slide, then turn back to them.
 - **Pause after the optimizer click.** Let the map change before you speak; that silence is the best moment of the demo.
-- **Say numbers slowly,** and round them when speaking ("almost nineteen thousand," not "eighteen thousand nine hundred seventy-eight").
+- **Say numbers slowly,** and round them when speaking ("seventeen thousand," not "seventeen thousand one hundred nine").
 - **Use the rubric's words** without sounding scripted: *impact*, *data analytics*, *feasible*, *legacy*, *visualization*.
 - **Own the assumptions before they're raised.** Saying "these are labeled planning assumptions" builds credibility; never overclaim accuracy.
 - **If something breaks live,** say "let me show you the captured run," go back to slides 6–8, and keep going. Judges care that you recover, not that the Wi-Fi works.
@@ -167,7 +170,7 @@ If you have only 3 minutes, do slides 1 → 2 → 4 → 6 → 8 → 9 → 12.
 > Only for communication. Gemini turns the numbers into a planner memo and is limited to the facts shown. Scoring and optimization are deterministic, so results are reproducible and auditable.
 
 **"Does it work for other events or cities?"**
-> The pipeline is parameterized by bounding box and venue. Attendance, arrival modes and tailgating are sliders, and the data sources are national (CDC, USFS) plus Houston-specific ones that most large cities have equivalents for.
+> It already does for other events — six real Houston venues run through the same pipeline today, each with its own gates, parking and rail routing, computed generically rather than hand-typed per venue. Attendance, arrival modes and tailgating are sliders. For another city, the pipeline is parameterized by bounding box; the data sources are national (CDC, USFS) plus Houston-specific ones that most large cities have equivalents for.
 
 **"What would you do with more time?"**
 > Real walking networks instead of straight-line routes, event-day weather forecasts, cooling-center operating hours, and validation against EMS heat-illness calls from past NRG events.

@@ -162,10 +162,17 @@ centered on the map/panel — don't stretch.
 
 ## Video demo link
 
-Upload `docs/social/demo-full.mp4` to YouTube (unlisted is fine — Devpost just
-needs a working link) or Vimeo, then paste that URL into "Video demo link." See
-`docs/social/POSTS.md` for the shared caption/description text to reuse on the
-YouTube listing itself.
+Upload `docs/social/full-video.mp4` (5m24s) to YouTube (unlisted is fine —
+Devpost just needs a working link) or Vimeo, then paste that URL into "Video
+demo link." It's the complete submission video: narrated title/problem/
+solution/model slides from the pitch deck, cutting into the real live-app
+demo footage, then narrated data-rigor/impact/tech/close slides — one
+continuous video, no PowerPoint required to follow along.
+
+`docs/social/demo-full.mp4` (60s, app-only walkthrough) is also available if
+a shorter, no-slides cut is preferred for any single platform. See
+`docs/social/POSTS.md` for the shared caption/description text to reuse on
+the YouTube listing itself.
 
 ---
 
